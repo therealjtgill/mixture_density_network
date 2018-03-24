@@ -85,12 +85,12 @@ def save_mixture_weights(weights, save_dir, offset=0):
 
 if __name__ == "__main__":
 
-  save_dir = "C:\\users\\gsaa\\documents\\mdn_" + str(datetime.datetime.today()).replace(":", "-")
+  save_dir = "/home/jtgill/documents/mdn_" + str(datetime.datetime.today()).replace(":", "-")
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
   session = tf.Session()
-  mdn_model = MDN(session, 3, 20, 250)
+  mdn_model = MDN(session, 3, 6, 250)
 
   dh = dh.data_handler("data_clean/handwritingfull.csv", [.7, .15, .15])
 

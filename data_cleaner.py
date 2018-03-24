@@ -93,17 +93,23 @@ def xml_to_csv2(raw_data_location, clean_data_location, uid=""):
 
 	all_data_ = np.vstack(all_data)
 	print(all_data_.shape, all_data_[0:10, :])
-	all_data_[:, 0:2] -= np.mean(all_data_[:, 0:2], axis=0)
-	all_data_[:, 0:2] /= np.std(all_data_[:, 0:2], axis=0)
+	#all_data_[:, 0:2] -= np.mean(all_data_[:, 0:2], axis=0)
+	mean = np.mean(all_data_[:, 0:2], axis=0)
+	#all_data_[:, 0:2] /= np.std(all_data_[:, 0:2], axis=0)
+	std = np.std(all_data_[:, 0:2], axis=0)
+
+	all_data_ -= mean
+	all_data_ /= std
 
 	# Save all data as a single CSV file because YOLO.
-	csv_out = os.path.join(clean_data_location, "handwriting" + uid + ".csv")
-	np.savetxt(csv_out, all_data_, delimiter=",")
+	#csv_out = os.path.join(clean_data_location, "handwriting" + uid + ".csv")
+	#np.savetxt(csv_out, all_data_, delimiter=",")
 
 	# Save all data in separate CSV files
-	#for i in range(len(all_data)):
-	#	csv_out = os.path.join(clean_data_location, "handwriting" + str(i) + ".csv")
-	#	np.savetxt(csv_out, all_data[i], delimiter=",")
+	for i in range(len(all_data)):
+		if len(all_data[i] > 300):
+			csv_out = os.path.join(clean_data_location, "handwriting" + uid + str(i) + ".csv")
+			np.savetxt(csv_out, (all_data[i]-mean)/std, delimiter=",")
 
 if __name__ == "__main__":
 	raw_data_location = \
