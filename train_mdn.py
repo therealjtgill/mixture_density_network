@@ -72,7 +72,7 @@ def save_mixture_weights(weights, save_dir, offset=0):
   #print("sample weights values:", np.squeeze(weights))
   #print("  weights sum along last axis:", np.sum(np.squeeze(weights), axis=-1))
   print("mixture weights shape:", weights.shape)
-  #scipy.misc.imsave(save_dir, "mixture_weights" + str(i) + ".png", np.squeeze(weights))
+  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
   plt.figure()
   plt.xlabel("sequence position")
   plt.ylabel("gaussian mixture component index")
@@ -85,37 +85,35 @@ def save_mixture_weights(weights, save_dir, offset=0):
 
 if __name__ == "__main__":
 
-  save_dir = "/home/jtgill/documents/mdn_" + str(datetime.datetime.today()).replace(":", "-")
+  session = tf.Session()
+  mdn_model = MDN(session, 3, 6, 250, save=True)
+  session.run(tf.global_variables_initializer())
+  save = tf.train.Saver()
+
+  save_dir = os.path.expanduser("~/documents/mdn_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-")
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
-  session = tf.Session()
-  mdn_model = MDN(session, 3, 6, 250)
+  writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
-  dh = dh.data_handler("data_clean/handwritingfull.csv", [.7, .15, .15])
+  data_dir = "data_clean/data_2018-03-25-16-15-56.863776"
+  data_files = os.listdir(data_dir)
+  data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
 
-  #train = dh.get_train_batch(64, 100)
-  #train = np.random.rand(64, 100, 3)
-  #train_out = np.random.rand(64, 100, 3)
-  #things = mdn_model.train_batch(train, train_out)
-
-  #print(things[0])
-  # Can't save things inside of filestream, have to point it to a different
-  # location on the physical disk.
-  #mdn_model.save_params("C:\\users\\jtgil\\documents\\mdn", 1)
+  dh = dh.data_handler(data_files, [.7, .15, .15])
 
   for i in range(100000):
     train = dh.get_train_batch(32, 300)
     things = mdn_model.train_batch(train["X"], train["y"])
 
     if i % 10 == 0:
-      print("  validating", i)
-      validate = dh.get_validation_batch(1, 10)
+      print("  saving images", i)
+      #validate = dh.get_validation_batch(1, 10)
 
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
       print("  things[3].shape (mixes):", things[3].shape)
-      save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
+      #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
       save_weighted_means(things[1][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
       save_mixture_weights(things[3][0,:,:], save_dir, i)
 

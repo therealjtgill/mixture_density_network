@@ -1,96 +1,65 @@
 import numpy as np
 import os
-
-
-class multi_file_data_handler(object):
-
-	def __init__(self, csv_files, splits):
-
-		# splits = [%_train, %_validate, %_test]
-		self.data_files = csv_files
-		data_all = [np.loadtxt(csv, delimiter=",") for csv in csv_files]
-		self.data_all = list(filter(lambda d: len(d) > 400, data_all))
-		print("num removed:", len(data_all) - len(self.data_all))
-		print("length of all data:", len(self.data_all))
-
-		lengths = [len(d) for d in self.data_all]
-		min_length = min(lengths)
-		max_length = max(lengths)
-		#print("lengths of strokes:", lengths)
-		print("min sequence length:", min_length)
-		print("max sequence length:", max_length)
-
-		num_data_files = len(self.data_all)
-
-		num_train = int(num_data_files*splits[0])
-		num_validate = int(num_data_files*splits[1])
-		num_test = num_data_files - num_train - num_validate
-
-		# Note that these are arrays of individual sequences. We know that all
-		# training data is zero-mean and unit norm.
-		self.data_train = self.data_all[0:num_train]
-		self.data_validate = self.data_all[num_train:num_train + num_validate]
-		self.data_test = self.data_all[num_train + num_validate:]
-
-	def get_batch(self, batch_size, sequence_length, dataset):
-		'''
-		A batch is composed of individual stroke sets
-		'''
-
-		if dataset == "train":
-			data = self.data_train
-		elif dataset == "test":
-			data = self.data_test
-		elif dataset == "validate":
-			data = self.data_validate
-
-		if batch_size > len(data):
-			batch_size = len(data)
+import sys
 
 
 class data_handler(object):
+	'''
+	Takes in a list of files containing CSV data. Each file is loaded as a
+	separate set of sequences to be fed into the recurrent MDN defined in
+	mdn.py.
+	'''
 
-	def __init__(self, csv_file, splits):
+	def __init__(self, csv_files, splits):
+		'''
+		Takes in a list of CSV files and an array indicating what portion of
+		the files will be training, test, and validation sets. All files are
+		treated as separate entities. When batches are generated, a sequence
+		pulled from a single file constitutes one of the elements of the batch.
+		'''
 
-		self.data_file = csv_file
-		self.data_all = np.loadtxt(self.data_file, delimiter=",")
+		try:
+			assert(isinstance(csv_files, list) or isinstance(csv_files, tuple))
+		except AssertionError:
+			sys.exit("The variable \"csv_files\" is a " + str(type(csv_files)) + " and not a list or tuple!")
 
-		num_points = self.data_all.shape[0]
+		try:
+			assert(sum(splits) == 1.0)
+		except AssertionError:
+			print("The \"splits\" variable needs three components that sum to one.")
+			sys.exit("This was provided:" + str(splits))
 
-		# Just to be weird, split the data into P segments, then pull the
-		# appropriate percentages of training and test data out of the P segments.
-		# I'm letting P be the number of people that contributed writing samples.
+		print("Loading data. Processing", len(csv_files), "files.")
+		self.data_files = csv_files
+		self.data_all = [np.loadtxt(csv, delimiter=",") for csv in self.data_files]
+		self.max_sequence_length = max([d.shape[0] for d in self.data_all])
 
-		P = 221
-		section_length = int(num_points/P)
-		sections = [section_length for _ in range(P - 1)]
+		self.num_files = len(self.data_files)
+		np.random.shuffle(self.data_all)
+		print("Loading finished.")
 
-		data_sections = np.split(self.data_all, sections, axis=0)
+		print("Splitting data.")
+		num_train = int(self.num_files*splits[0])
+		num_test = int(self.num_files*splits[1])
+		num_validate = self.num_files - (num_train + num_test)
+		print("  Number train: ", num_train)
+		print("  Number test:", num_test)
+		print("  Number validate:", num_validate)
 
-		data_train = []
-		data_test = []
-		data_validate = []
-
-		for i in range(P):
-			section_length = data_sections[i].shape[0]
-			sections = [
-				int(section_length*splits[0]),
-				int(section_length*splits[0]) + int(section_length*splits[1])
-			]
-			train, test, validate = np.split(data_sections[i], sections, axis=0)
-			data_train.append(train)
-			data_test.append(test)
-			data_validate.append(validate)
-
-		self.data_train = np.concatenate(data_train, axis=0)
-		self.data_test = np.concatenate(data_test, axis=0)
-		self.data_validate = np.concatenate(data_validate, axis=0)
-		print("train data shape:", self.data_train.shape)
-		print("test data shape:", self.data_test.shape)
-		print("validation data shape:", self.data_validate.shape)
+		self.data_train = self.data_all[:num_train]
+		self.data_test = self.data_all[num_train:num_train + num_test]
+		self.data_validate = self.data_all[num_train + num_test:]
+		print("Splitting finished.")
 
 
 	def get_batch(self, batch_size, sequence_length, dataset):
+
+		try:
+			assert(sequence_length <= self.max_sequence_length)
+		except AssertionError:
+			print("Sequence length " + str(sequence_length) + " is larger than the allowed " + str(self.max_sequence_length))
+			print("Setting sequence length to " + str(self.max_sequence_length))
+			sequence_length = self.max_sequence_length
 		
 		if dataset == "train":
 			data = self.data_train
@@ -100,22 +69,22 @@ class data_handler(object):
 			data = self.data_validate
 
 		low = 0
-		high = data.shape[0] - sequence_length - 1
-		start_indices = np.random.randint(low, high, batch_size)
-		print("start indices:", start_indices)
-		batch = []
+		high = len(data)
+		file_indices = np.random.randint(low, high, batch_size)
+		print("batches pulled from following file indices:", file_indices)
+		batch_in = []
 		batch_out = []
-		for i in range(batch_size):
-			ind = start_indices[i]
-			batch.append(data[ind:ind+sequence_length, :])
-			batch_out.append(data[ind+1:ind+1+sequence_length, :])
+		for i in file_indices:
+			start_index = np.random.randint(0, data[i].shape[0] - sequence_length)
+			batch_in.append(data[i][start_index:sequence_length + start_index, :])
+			batch_out.append(data[i][start_index + 1:sequence_length + start_index + 1, :])
 
-		batch = np.stack(batch, axis=0)
+		batch_in = np.stack(batch_in, axis=0)
 		batch_out = np.stack(batch_out, axis=0)
-		print(batch.shape)
+		print(batch_in.shape)
 		print(batch_out.shape)
 
-		batch_set = {"X":batch, "y":batch_out}
+		batch_set = {"X":batch_in, "y":batch_out}
 
 		return batch_set
 
@@ -136,10 +105,11 @@ class data_handler(object):
 
 
 if __name__ == "__main__":
-	#dh = data_handler("data_clean/handwriting.csv", [.7, .15, .15])
-	#dh.get_train_batch(64, 100)
-	#dh.get_test_batch(63, 99)
-	#dh.get_validation_batch(62, 98)
-	files = [os.path.join("data_clean", f) for f in os.listdir("data_clean") if "handwriting.csv" not in f]
-	print(len(files[1:5000]))
-	dh = multi_file_data_handler(files, [.7, .15, .15])
+
+	data_dir = "data_clean/data_2018-03-25-16-15-56.863776"
+	data_files = os.listdir(data_dir)
+	data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
+	dh = data_handler(data_files[0:100], [.7, .15, .15])
+	dh.get_train_batch(64, 100)
+	dh.get_test_batch(63, 99)
+	dh.get_validation_batch(62, 98)

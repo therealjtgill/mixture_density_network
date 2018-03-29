@@ -10,7 +10,8 @@ class MDN(object):
   density network.
   '''
 
-  def __init__(self, session, input_size, num_gaussians=3, num_lstm_cells=300):
+  def __init__(self, session, input_size, num_gaussians=3, num_lstm_cells=300,
+               use_correlation=True, save=False):
     '''
     Sets up the computation graph for the MDN.
     Bishop, et. al, use a mixture of univariate gaussians, which allows them
@@ -32,16 +33,21 @@ class MDN(object):
     
     num_means = num_gaussians*(input_size - 1)
     num_variances = num_gaussians*(input_size - 1)
-    output_size = num_gaussians + num_means + num_variances + 1
+    num_correlations = num_gaussians*(1)
+    output_size = num_gaussians + num_means + num_variances \
+                  + num_correlations + 1
 
-    print('output size:', output_size, (output_size - 1)/num_gaussians)
+    print("output size:", output_size)
+    print("output size per gaussian:", (output_size - 1)/num_gaussians)
 
     with tf.variable_scope("mdn"):
 
       self.input_data = tf.placeholder(dtype=dtype,
-                                       shape=[None, None, input_size])
+                                       shape=[None, None, input_size], name="batch_input")
       self.output_data = tf.placeholder(dtype=dtype,
-                                        shape=[None, None, input_size])
+                                        shape=[None, None, input_size], name="batch_targets")
+      batch_size = tf.shape(self.input_data)[0]
+      seq_length = tf.shape(self.input_data)[1]
 
       # For each layer of lstm's, create a set of placeholders to contain
       # values passed to each lstm cell's initial recurrent state.
@@ -65,7 +71,7 @@ class MDN(object):
       outputs, self.last_lstm_state = \
         tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype,
                           initial_state=self.init_states)
-      outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells])
+      outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
       self.layers.append(outputs_flat)
 
       # Output layer
@@ -73,12 +79,22 @@ class MDN(object):
       self.layers.append(self._linear_op(self.layers[-1], shape))
 
       # Get the mixture components
-      splits = [num_means, num_variances, num_gaussians, 1]
+      splits = [num_means, num_variances, num_correlations, num_gaussians, 1]
       pieces = tf.split(self.layers[-1], splits, axis=1)
+
       self.means = pieces[0]
       self.stdevs = tf.nn.softplus(pieces[1])
-      self.mix_weights = tf.nn.softmax(pieces[2])
-      self.stroke = tf.nn.sigmoid(pieces[3])
+      self.correlations = tf.nn.tanh(pieces[2])
+      self.mix_weights = tf.nn.softmax(pieces[3])
+      self.stroke = tf.nn.sigmoid(pieces[4])
+
+      means_shape = [batch_size, seq_length, num_gaussians, 2]
+      stdevs_shape = [batch_size, seq_length, num_gaussians, 2]
+      mixes_shape = [batch_size, seq_length, num_gaussians, 1]
+
+      self.means_ = tf.reshape(self.means, means_shape)
+      self.stdevs_ = tf.reshape(self.stdevs, stdevs_shape)
+      self.mix_weights_ = tf.reshape(self.mix_weights, mixes_shape)
 
       outputs_flat = tf.reshape(self.output_data, [-1, input_size])
 
@@ -90,27 +106,29 @@ class MDN(object):
 
       # These are for actually training or evaluating the network.
       self.gauss_evals = self._eval_gaussians(gauss_values, self.means,
-                                              self.stdevs, num_gaussians)
+                                              self.stdevs, self.correlations,
+                                              num_gaussians)
 
       print(self.gauss_evals.shape, self.mix_weights.shape)
       print(pieces[3].shape)
 
       self.mixture = tf.reduce_sum(self.gauss_evals*self.mix_weights, axis=-1)
       stroke_loss = \
-        tf.nn.sigmoid_cross_entropy_with_logits(labels=stroke, logits=pieces[3])
+        tf.nn.sigmoid_cross_entropy_with_logits(labels=stroke, logits=pieces[4])
       print("unreduced stroke loss shape:", stroke_loss.shape)
-      a = self.gauss_evals*self.mix_weights
-      print("unreduced mixture shape:", a.shape)
+      #a = self.gauss_evals*self.mix_weights
+      #print("unreduced mixture shape:", a.shape)
       self.stroke_loss = tf.reduce_sum(stroke_loss, axis=-1)
       print(self.stroke_loss.shape)
 
-      self.loss = tf.reduce_mean(-1*tf.log(self.mixture) + self.stroke_loss)
+      self.loss = tf.reduce_mean(-1*tf.log(self.mixture) + self.stroke_loss, name="loss")
       # Need to clip gradients (?)
       optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001)
       self.train_op = optimizer.minimize(self.loss)
 
-      self.saver = tf.train.Saver()
-      self.session.run(tf.global_variables_initializer())
+      if save:
+        self.saver = tf.train.Saver()
+      #self.session.run(tf.global_variables_initializer())
 
 
   def _get_weights(self, shape, name="requested_weight"):
@@ -158,37 +176,50 @@ class MDN(object):
     return (comp_means, comp_stdevs)
 
 
-  def _eval_gaussians(self, values, means, stdevs, num_gaussians):
+  def _eval_gaussians(self, values, means, stdevs, correls, num_gaussians):
     '''
     Takes tensors of values, means, and stdevs, and returns tensors of
-    gaussians parametrized by 'means' and 'stdevs' evaluated at 'values'.
-    Here we assume that 'values' only contains components relevant to the
-    GMM on the output.
+    gaussians parametrized by 'means', 'stdevs', and 'correls' evaluated at
+    'values'. Here we assume that 'values' only contains components relevant
+    to the GMM on the output.
 
-    values -> [bs*sl, M]
-    stdevs -> [bs*sl, num_gaussians*M]
-    means  -> [bs*sl, num_gaussians*M]
+    values  -> [bs*sl, M]
+    stdevs  -> [bs*sl, num_gaussians*M]
+    means   -> [bs*sl, num_gaussians*M]
+    correls -> [bs*sl, num_gaussians]
     '''
+
+    print("gaussian component shapes:")
+    print("\tvalues:", values.shape)
+    print("\tstdevs:", stdevs.shape)
+    print("\tmeans:", means.shape)
+    print("\tcorrels:", correls.shape)
 
     with tf.variable_scope("gmm_evaluation"):
       comp_means = tf.split(means, num_gaussians, axis=1)
       comp_stdevs = tf.split(stdevs, num_gaussians, axis=1)
+      comp_correls = tf.split(correls, num_gaussians, axis=1)
       
-      ind_gaussians = []
+      gaussians = []
       for i in range(num_gaussians):
-        factors = 1./(np.sqrt(2*np.pi)*comp_stdevs[i])
+        correls_denom = tf.reduce_sum(1 - comp_correls[i]*comp_correls[i], axis=1)
+        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom))
+        print("\tfactor", i, ":", factor.shape)
         #print(self.session.run([tf.shape(comp_means[i]), tf.shape(comp_stdevs[i])]))
         norms = (values - comp_means[i])/comp_stdevs[i]
-        #exponents = -0.5*tf.tensordot(tf.transpose(norms), norms, axes=1)
-        exponents = -0.5*norms*norms
-        ind_gaussians.append(factors*tf.exp(exponents))
+        exponents = -(1/(2*correls_denom))*(tf.reduce_sum(norms*norms, axis=1) - tf.reduce_prod(norms, axis=1)*2*tf.reduce_sum(comp_correls[i], axis=1))
+        print("\texponents", i, ":", exponents.shape)
+        #ind_gaussians.append(factors*tf.exp(exponents))
+        gaussians.append(factor*tf.exp(exponents))
 
       # You have a gaussian for each set of components of the mixture model,
       # now you just have to reduce those components into the pieces of the GMM.
 
-      gaussians = [tf.reduce_prod(g, axis=-1) for g in ind_gaussians]
+      #gaussians = [tf.reduce_prod(g, axis=-1) for g in ind_gaussians]
+      stacked_gaussians = tf.stack(gaussians, axis=1)
+      print("stacked gaussians shape:", stacked_gaussians.shape)
 
-    return tf.stack(gaussians, axis=1)
+    return stacked_gaussians
 
   def train_batch(self, batch_in, batch_out):
     '''
@@ -213,18 +244,18 @@ class MDN(object):
     # Reshaping the means and covariances outside of the class constructor
     # because the *_batch methods have explicit knowledge of batch sizes and
     # sequence lengths.
-    means_shape = [batch_size, sequence_length, self.num_gaussians, 2]
-    means = tf.reshape(self.means, means_shape)
-    stdevs_shape = [batch_size, sequence_length, self.num_gaussians, 2]
-    stdevs = tf.reshape(self.stdevs, stdevs_shape)
-    mix_shape = [batch_size, sequence_length, self.num_gaussians, 1]
-    mix_weights = tf.reshape(self.mix_weights, mix_shape)
+    #means_shape = [batch_size, sequence_length, self.num_gaussians, 2]
+    #means = tf.reshape(self.means, means_shape)
+    #stdevs_shape = [batch_size, sequence_length, self.num_gaussians, 2]
+    #stdevs = tf.reshape(self.stdevs, stdevs_shape)
+    #mix_shape = [batch_size, sequence_length, self.num_gaussians, 1]
+    #mix_weights = tf.reshape(self.mix_weights, mix_shape)
     fetches = [
       self.train_op,
       self.loss,
-      means,
-      stdevs,
-      mix_weights
+      self.means_,
+      self.stdevs_,
+      self.mix_weights_
     ]
 
     _, loss, means_, stdevs_, mix = self.session.run(fetches, feed_dict=feeds)
@@ -252,21 +283,11 @@ class MDN(object):
       feeds[self.init_states[i][0]] = zero_states[i][0]
       feeds[self.init_states[i][1]] = zero_states[i][1]
 
-    # Reshaping the means and covariances outside of the class constructor
-    # because the *_batch methods have explicit knowledge of batch sizes and
-    # sequence lengths.
-    means_shape = [batch_size, sequence_length, self.num_gaussians, 2]
-    means = tf.reshape(self.means, means_shape)
-    stdevs_shape = [batch_size, sequence_length, self.num_gaussians, 2]
-    stdevs = tf.reshape(self.stdevs, stdevs_shape)
-    print("validation mix weights shape:", self.mix_weights.shape)
-    mix_shape = [batch_size, sequence_length, self.num_gaussians]
-    mix_weights = tf.reshape(self.mix_weights, mix_shape)
     fetches = [
       self.loss,
-      means,
-      stdevs,
-      mix_weights
+      self.means_,
+      self.stdevs_,
+      self._mix_weights
     ]
 
     loss, means_, stdevs_, mix = self.session.run(fetches, feed_dict=feeds)
@@ -284,10 +305,10 @@ class MDN(object):
 
     # params[0] --> means
     # params[1] --> variance terms
-    # Variance terms aren't in matrix form, but we assume that all gaussians in
-    # the mixture are independent, so we just construct some janky matrices
-    # before sampling from each gaussian.
-    #print(params[0][0].shape, params[1][0].shape)
+    # params[2] --> correlation terms
+    # Variance terms aren't in matrix form, but we know what a 2D gaussian
+    # with correlated variables looks like, so we use this form to construct
+    # a 2D gaussian by filling in the covariance matrix and means.
 
     sample = np.zeros_like(params[0][0])
     for i in range(self.num_gaussians):
@@ -297,6 +318,7 @@ class MDN(object):
       for j in range(self.input_size - 1):
         #print("  mixture_sample cov shape:", params[1][i].shape)
         cov[j,j] = params[1][i][j]
+        cov[j,1-j] = params[2][i][0]
       sample += mix[i]*np.random.multivariate_normal(mean, cov)
     return sample[np.newaxis, np.newaxis, :]
 
