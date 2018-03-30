@@ -79,16 +79,21 @@ def xml_to_csv2(raw_data_location, clean_data_location, min_sequence_length=300,
 
 				file_data = []
 				for strokeset in root:
+					x_prev = 0.
+					y_prev = 0.
 					if strokeset.tag == "StrokeSet":
 						for stroke in strokeset:
-							file_data.append(np.asarray([[0, 0, 0]]))
 							for point in stroke:
-								x_ = tuple(point.attrib.keys())[0]
-								y_ = tuple(point.attrib.keys())[1]
 								x = float(point.attrib["x"])
 								y = float(point.attrib["y"])
-								file_data.append(np.asarray([[x, y, 1.0]]))
+								if len(file_data) == 0:
+									file_data.append(np.asarray([[0., 0., 1.0]]))
+								else:
+									file_data.append(np.asarray([[x - x_prev, y - y_prev, 1.0]]))
+								x_prev = x
+								y_prev = y
 								#f.write(point.attrib["x"], ",", point.attrib["y"], ",", "1")
+							file_data.append(np.asarray([[0, 0, 0]]))
 						#print("length of file_data:", len(file_data))
 				all_data.append(np.vstack(file_data))
 				print("file data shape:", all_data[-1].shape)
@@ -112,7 +117,8 @@ def xml_to_csv2(raw_data_location, clean_data_location, min_sequence_length=300,
 	for i in range(len(all_data)):
 		if len(all_data[i]) >= min_sequence_length:
 			csv_out = os.path.join(clean_data_location, "handwriting" + uid + str(i) + ".csv")
-			all_data[i][:, 0:2] = (all_data[i][:, 0:2] - mean)/std
+			#all_data[i][:, 0:2] = (all_data[i][:, 0:2] - mean)/std
+			all_data[i][:, 0:2] = all_data[i][:, 0:2]/std
 			np.savetxt(csv_out, all_data[i], delimiter=",")
 
 if __name__ == "__main__":
@@ -121,7 +127,7 @@ if __name__ == "__main__":
 	#raw_data_location = \
 	#	"C:\\Users\\gsaa\\Downloads\\lineStrokes-all.tar\\lineStrokes-all\\lineStrokes"
 	raw_data_location = \
-		"data_raw/original"
+		"data_raw/original_with_transcriptions"
 	clean_data_location = \
 		"data_clean/data_" + date_str
 	#copy_files(raw_data_location, out_data_location)
