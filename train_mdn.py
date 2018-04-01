@@ -7,6 +7,7 @@ import scipy.misc
 from utils import gaussian_mixture_contour
 import os
 import datetime
+import sys
 
 
 def save_prediction_heatmap(means, stdevs, weights, input_, save_dir, offset=0):
@@ -84,6 +85,19 @@ def save_mixture_weights(weights, save_dir, offset=0):
 
 
 if __name__ == "__main__":
+  # TODO@therealjtgill
+  # After adding differences between points as the training data, I'm getting
+  # inf's on the loss function, stemming from the GMM evaluations being zero
+  # (because I'm taking the log of the gaussian evaluation as part of the loss
+  # function). I'm not sure where the GMM eval zeroes are coming from.
+
+  data_dir = ""
+  if len(sys.argv) == 0:
+    sys.exit(-1)
+  else:
+    data_dir = sys.argv[1]
+    if not os.path.exists(data_dir):
+      sys.exit(-1)
 
   session = tf.Session()
   mdn_model = MDN(session, 3, 6, 250, save=True)
@@ -96,16 +110,17 @@ if __name__ == "__main__":
 
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
-  data_dir = "data_clean/data_2018-03-25-16-15-56.863776"
+  #data_dir = "data_clean/data_2018-03-25-16-15-56.863776"
   data_files = os.listdir(data_dir)
   data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
 
-  dh = dh.data_handler(data_files, [.7, .15, .15])
+  dh = dh.data_handler(data_files[0:100], [.7, .15, .15])
 
-  for i in range(100000):
+  for i in range(10000):
     train = dh.get_train_batch(32, 300)
     things = mdn_model.train_batch(train["X"], train["y"])
-
+    print("mixture evaluation max: ", np.amax(things[-1]), "min: ", np.amin(things[-1]))
+    print("individual gaussian evaluations max: ", np.amax(things[-2]), "min: ", np.amin(things[-2]))
     if i % 10 == 0:
       print("  saving images", i)
       #validate = dh.get_validation_batch(1, 10)
@@ -124,6 +139,6 @@ if __name__ == "__main__":
     #dots, strokes = mdn_model.run_cyclically(np.random.rand(1, 15, 3), 100)
     #print(dots.shape)
     #print(strokes.shape)
-    print(things[0], things[0].shape)
+    print("loss: ", things[0], "loss shape: ", things[0].shape)
     with open(os.path.join(save_dir, "error.dat"), "a") as f:
       f.write(str(i) + "," + str(things[0]) + "\n")

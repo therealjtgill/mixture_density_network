@@ -42,9 +42,9 @@ class data_handler(object):
 		num_train = int(self.num_files*splits[0])
 		num_test = int(self.num_files*splits[1])
 		num_validate = self.num_files - (num_train + num_test)
-		print("  Number train: ", num_train)
-		print("  Number test:", num_test)
-		print("  Number validate:", num_validate)
+		print("  Number train files: ", num_train)
+		print("  Number test files:", num_test)
+		print("  Number validate files:", num_validate)
 
 		self.data_train = self.data_all[:num_train]
 		self.data_test = self.data_all[num_train:num_train + num_test]

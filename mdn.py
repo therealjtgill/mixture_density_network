@@ -81,17 +81,16 @@ class MDN(object):
       # Get the mixture components
       splits = [num_means, num_variances, num_correlations, num_gaussians, 1]
       pieces = tf.split(self.layers[-1], splits, axis=1)
-
       self.means = pieces[0]
       self.stdevs = tf.nn.softplus(pieces[1])
       self.correlations = tf.nn.tanh(pieces[2])
       self.mix_weights = tf.nn.softmax(pieces[3])
       self.stroke = tf.nn.sigmoid(pieces[4])
 
+      # Reshape the means, stdevs, and mixture weights for friendly returns
       means_shape = [batch_size, seq_length, num_gaussians, 2]
       stdevs_shape = [batch_size, seq_length, num_gaussians, 2]
       mixes_shape = [batch_size, seq_length, num_gaussians, 1]
-
       self.means_ = tf.reshape(self.means, means_shape)
       self.stdevs_ = tf.reshape(self.stdevs, stdevs_shape)
       self.mix_weights_ = tf.reshape(self.mix_weights, mixes_shape)
@@ -121,7 +120,7 @@ class MDN(object):
       self.stroke_loss = tf.reduce_sum(stroke_loss, axis=-1)
       print(self.stroke_loss.shape)
 
-      self.loss = tf.reduce_mean(-1*tf.log(self.mixture) + self.stroke_loss, name="loss")
+      self.loss = tf.reduce_mean(-1*tf.log(self.mixture + 1e-8) + self.stroke_loss, name="loss")
       # Need to clip gradients (?)
       optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001)
       self.train_op = optimizer.minimize(self.loss)
@@ -241,27 +240,20 @@ class MDN(object):
       feeds[self.init_states[i][0]] = zero_states[i][0]
       feeds[self.init_states[i][1]] = zero_states[i][1]
 
-    # Reshaping the means and covariances outside of the class constructor
-    # because the *_batch methods have explicit knowledge of batch sizes and
-    # sequence lengths.
-    #means_shape = [batch_size, sequence_length, self.num_gaussians, 2]
-    #means = tf.reshape(self.means, means_shape)
-    #stdevs_shape = [batch_size, sequence_length, self.num_gaussians, 2]
-    #stdevs = tf.reshape(self.stdevs, stdevs_shape)
-    #mix_shape = [batch_size, sequence_length, self.num_gaussians, 1]
-    #mix_weights = tf.reshape(self.mix_weights, mix_shape)
     fetches = [
       self.train_op,
       self.loss,
+      self.gauss_evals,
+      self.mixture,
       self.means_,
       self.stdevs_,
       self.mix_weights_
     ]
 
-    _, loss, means_, stdevs_, mix = self.session.run(fetches, feed_dict=feeds)
+    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix = self.session.run(fetches, feed_dict=feeds)
     print("shape of means:", means_.shape)
     print("shape of stdevs:", stdevs_.shape)
-    return (loss, means_, stdevs_, mix)
+    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval)
 
 
   def validate_batch(self, batch_in, batch_out):

@@ -93,25 +93,18 @@ def xml_to_csv2(raw_data_location, clean_data_location, min_sequence_length=300,
 								x_prev = x
 								y_prev = y
 								#f.write(point.attrib["x"], ",", point.attrib["y"], ",", "1")
-							file_data.append(np.asarray([[0, 0, 0]]))
+							#file_data.append(np.asarray([[0, 0, 0]]))
+							# Mark last item in the list of points as the end of stroke.
+							file_data[-1][-1] = 0.0
 						#print("length of file_data:", len(file_data))
 				all_data.append(np.vstack(file_data))
 				print("file data shape:", all_data[-1].shape)
 
 	all_data_ = np.vstack(all_data)
 	print(all_data_.shape, all_data_[0:10, :])
-	#all_data_[:, 0:2] -= np.mean(all_data_[:, 0:2], axis=0)
 	mean = np.mean(all_data_[:, 0:2], axis=0)
-	#all_data_[:, 0:2] /= np.std(all_data_[:, 0:2], axis=0)
 	std = np.std(all_data_[:, 0:2], axis=0)
-
-	#all_data_ -= mean
-	#all_data_ /= std
 	print("mean shape:", mean.shape)
-
-	# Save all data as a single CSV file because YOLO.
-	#csv_out = os.path.join(clean_data_location, "handwriting" + uid + ".csv")
-	#np.savetxt(csv_out, all_data_, delimiter=",")
 
 	# Save all data in separate CSV files
 	for i in range(len(all_data)):
