@@ -1,8 +1,9 @@
-import os
+import argparse
 import datetime
-import sys
-import shutil
 import numpy as np
+import os
+import shutil
+import sys
 import xml.etree.ElementTree as ET
 np.set_printoptions(threshold=np.nan)
 
@@ -23,6 +24,11 @@ def copy_files(raw_data_location, out_data_location):
 
 
 def xml_to_csv(raw_data_location, clean_data_location, uid=""):
+	'''
+	This is a legacy function for extracting XML data on stroke positions and
+	pen up/down from XML files that do not contain character annotations.
+	DO NOT USE.
+	'''
 
 	if not os.path.isdir(clean_data_location):
 		os.makedirs(clean_data_location)
@@ -63,11 +69,31 @@ def xml_to_csv(raw_data_location, clean_data_location, uid=""):
 	#	np.savetxt(csv_out, all_data[i], delimiter=",")
 
 
-def xml_to_csv2(raw_data_location, clean_data_location, min_sequence_length=300, uid=""):
+def xml_with_annotations_to_csv(raw_data_location, clean_data_location, min_sequence_length=300, uid=""):
+	'''
+	This function is tailored to extracting data from the IAM Online Handwriting
+	database, where XML files contain both sets of strokes and transcriptions
+	of what was written.
+
+	This function is broken into two parts:
+	  1. The stroke position and value extractor
+	  2. The stroke information saver
+
+	The stroke position and value extractor extracts (x,y) positions from the
+	XML files, and saves in RAM the value (x_(i+1), y_(i+1)) - (x_i, y_i) as a
+	vector.
+
+	The data extracted from separate XML files are kept in separate arrays, and
+	are later saved in separate CSV files. This is meant to make the selection of
+	training batches more consistent.
+	'''
 
 	if not os.path.isdir(clean_data_location):
 		os.makedirs(clean_data_location)
 
+	# "all_data" will contain an array of rank-2 tensors. Elements of the
+	# array will be the sets of strokes that belong to individual files in
+	# the training set.
 	all_data = []
 	for root, dirs, files in os.walk(raw_data_location):
 		#print("files:", files)
@@ -92,10 +118,8 @@ def xml_to_csv2(raw_data_location, clean_data_location, min_sequence_length=300,
 									file_data.append(np.asarray([[x - x_prev, y - y_prev, 1.0]]))
 								x_prev = x
 								y_prev = y
-								#f.write(point.attrib["x"], ",", point.attrib["y"], ",", "1")
-							#file_data.append(np.asarray([[0, 0, 0]]))
 							# Mark last item in the list of points as the end of stroke.
-							file_data[-1][-1] = 0.0
+							file_data[-1][0,-1] = 0.0
 						#print("length of file_data:", len(file_data))
 				all_data.append(np.vstack(file_data))
 				print("file data shape:", all_data[-1].shape)
@@ -106,15 +130,25 @@ def xml_to_csv2(raw_data_location, clean_data_location, min_sequence_length=300,
 	std = np.std(all_data_[:, 0:2], axis=0)
 	print("mean shape:", mean.shape)
 
-	# Save all data in separate CSV files
+	# Save all data in separate CSV files.
 	for i in range(len(all_data)):
 		if len(all_data[i]) >= min_sequence_length:
 			csv_out = os.path.join(clean_data_location, "handwriting" + uid + str(i) + ".csv")
-			#all_data[i][:, 0:2] = (all_data[i][:, 0:2] - mean)/std
+			# Just scale the data by its standard deviation values; translation will
+			# screw up the network's ability to predict.
 			all_data[i][:, 0:2] = all_data[i][:, 0:2]/std
 			np.savetxt(csv_out, all_data[i], delimiter=",")
 
 if __name__ == "__main__":
+
+	parser = argparse.ArgumentParser(description="Takes XML data from the IAM online handwriting database and cleans it. \
+																								Currently the only file structure that is supported is the \"original-xml-part.tar.gz \"\
+																								file, which can be downloaded from the IAM online website.")
+
+	parser.add_argument("--rawdata", action="store", dest="raw_data_location", type=str, required=True,
+											description="The location of the raw (extracted) XML files from the IAM online handwriting db.")
+	parser.add_argument("--cleandata", action="store", dest="clean_data_location", type=str,
+											description="The ")
 
 	date_str = str(datetime.datetime.today()).replace(":", "-")
 	#raw_data_location = \
@@ -125,4 +159,4 @@ if __name__ == "__main__":
 		"data_clean/data_" + date_str
 	#copy_files(raw_data_location, out_data_location)
 
-	xml_to_csv2(raw_data_location, clean_data_location, uid="full")
+	xml_with_annotations_to_csv(raw_data_location, clean_data_location, uid="full")

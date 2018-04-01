@@ -1,13 +1,16 @@
 from mdn import MDN
-import tensorflow as tf
-import numpy as np
+from utils import gaussian_mixture_contour
+
+import argparse
+import datetime
+import os
+import scipy.misc
+import sys
+
 import data_handler as dh
 import matplotlib.pyplot as plt
-import scipy.misc
-from utils import gaussian_mixture_contour
-import os
-import datetime
-import sys
+import numpy as np
+import tensorflow as tf
 
 
 def save_prediction_heatmap(means, stdevs, weights, input_, save_dir, offset=0):
@@ -67,6 +70,34 @@ def save_weighted_means(means, weights, input_, save_dir, offset=0):
   plt.close()
 
 
+def save_weighted_deltas(means, weights, input_, save_dir, offset=0):
+  '''
+  This is meant to be used with (x,y) coordinates from the input data
+  representing deltas from pen position at t=i+1 and t=i.
+  Successive deltas are added together (for the inputs as well as the weighted
+  means) to produce an image of what was actually written.
+  '''
+
+  sequence_length, num_gaussians, _ = weights.shape
+  map_preds = []
+  for i in range(sequence_length):
+    pred = 0
+    for j in range(num_gaussians):
+      pred += weights[i, j] * means[i, j]
+    if i > 0:
+      map_preds.append(pred + map_preds[-1])
+      input_[i, :] = input_[i, :] + input_[i - 1, :]
+    else:
+      map_preds.append(pred)
+  map_preds = np.stack(map_preds, axis=0)
+
+  plt.figure()
+  plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
+  plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
+  plt.savefig(os.path.join(save_dir, "deltasplot" + str(offset) + ".png"))
+  plt.close()
+
+
 def save_mixture_weights(weights, save_dir, offset=0):
 
   sequence_length, num_gaussians, _ = weights.shape
@@ -85,22 +116,33 @@ def save_mixture_weights(weights, save_dir, offset=0):
 
 
 if __name__ == "__main__":
-  # TODO@therealjtgill
-  # After adding differences between points as the training data, I'm getting
-  # inf's on the loss function, stemming from the GMM evaluations being zero
-  # (because I'm taking the log of the gaussian evaluation as part of the loss
-  # function). I'm not sure where the GMM eval zeroes are coming from.
 
-  data_dir = ""
-  if len(sys.argv) == 0:
+  parser = argparse.ArgumentParser(description="The script used to train a mixture density network. Assumes that cleaned training data is present.")
+
+  parser.add_argument("--traindata", action="store", dest="data_dir", type=str, required=True,
+                      help="Specify a location of training data (usually in \"./data_clean/some_folder\")")
+  parser.add_argument("--nummixcomps", action="store", dest="num_components", type=int, default=6,
+                      help="Optional argument to specify the number of gaussians in the Gaussian Mixture Model. \
+                      Note that adding more components requires a greater number of weights on the output layer.")
+  parser.add_argument("--numlayers", action="store", dest="num_layers", type=int, default=3,
+                      help="Optional argument to specify the number of LSTM layers that will be used as part of the NN. \
+                      Note that a large number of layers will decrease training error, but will require more RAM.")
+  parser.add_argument("--truncatedata", action="store", dest="truncate_data", type=bool, default=False,
+                      help="Optional argument to only load a portion of the training data (the first 100 files). \
+                      This should be used for debugging purposes only.")
+
+  args = parser.parse_args()
+
+  data_dir = args.data_dir
+  num_components = args.num_components
+  num_layers = args.num_layers
+  #num_data_files = args.num_data_files
+
+  if not os.path.exists(data_dir):
     sys.exit(-1)
-  else:
-    data_dir = sys.argv[1]
-    if not os.path.exists(data_dir):
-      sys.exit(-1)
 
   session = tf.Session()
-  mdn_model = MDN(session, 3, 6, 250, save=True)
+  mdn_model = MDN(session, num_layers, num_components, 250, save=True)
   session.run(tf.global_variables_initializer())
   save = tf.train.Saver()
 
@@ -114,7 +156,12 @@ if __name__ == "__main__":
   data_files = os.listdir(data_dir)
   data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
 
-  dh = dh.data_handler(data_files[0:100], [.7, .15, .15])
+  if args.truncate_data:
+    print("Using the truncated dataset.")
+    dh = dh.data_handler(data_files[0:100], [.7, .15, .15])
+  else:
+    print("Using the full dataset.")
+    dh = dh.data_handler(data_files, [.7, .15, .15])
 
   for i in range(10000):
     train = dh.get_train_batch(32, 300)
@@ -127,9 +174,8 @@ if __name__ == "__main__":
 
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
-      print("  things[3].shape (mixes):", things[3].shape)
       #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
-      save_weighted_means(things[1][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
+      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
       save_mixture_weights(things[3][0,:,:], save_dir, i)
 
     if i % 500 == 0:
@@ -137,8 +183,6 @@ if __name__ == "__main__":
 
     #mdn_model.validate_batch(fake_train_in, fake_train_out)
     #dots, strokes = mdn_model.run_cyclically(np.random.rand(1, 15, 3), 100)
-    #print(dots.shape)
-    #print(strokes.shape)
     print("loss: ", things[0], "loss shape: ", things[0].shape)
-    with open(os.path.join(save_dir, "error.dat"), "a") as f:
+    with open(os.path.join(save_dir, "_error.dat"), "a") as f:
       f.write(str(i) + "," + str(things[0]) + "\n")
