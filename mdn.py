@@ -15,10 +15,9 @@ class MDN(object):
     '''
     Sets up the computation graph for the MDN.
     Bishop, et. al, use a mixture of univariate gaussians, which allows them
-    to avoid futzing around with off-diagonal covariance matrix terms. It also
-    affords them a bit of extra numerical stability, since they don't have to
-    worry about diagonal elements going to zero (exponentiate the node
-    containing the single variance term).
+    to avoid futzing around with off-diagonal covariance matrix terms.
+    Univariate gaussians have proven to be insufficient for prediction, so this
+    model uses full covariance matrices for the mixture components.
     '''
 
     dtype = tf.float32
@@ -30,6 +29,7 @@ class MDN(object):
     self.num_lstm_layers = 3
     self.num_gaussians = num_gaussians
     self.input_size = input_size
+    self.l2_penalty = 0.00001
     
     num_means = num_gaussians*(input_size - 1)
     num_variances = num_gaussians*(input_size - 1)
@@ -48,6 +48,7 @@ class MDN(object):
                                         shape=[None, None, input_size], name="batch_targets")
       batch_size = tf.shape(self.input_data)[0]
       seq_length = tf.shape(self.input_data)[1]
+      print("batch_size info: ", batch_size)
 
       # For each layer of lstm's, create a set of placeholders to contain
       # values passed to each lstm cell's initial recurrent state.
@@ -71,6 +72,9 @@ class MDN(object):
       outputs, self.last_lstm_state = \
         tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype,
                           initial_state=self.init_states)
+      #outputs, self.last_lstm_state = \
+      #  tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype)
+      self.zero_states = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
       outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
       self.layers.append(outputs_flat)
 
@@ -83,29 +87,33 @@ class MDN(object):
       pieces = tf.split(self.layers[-1], splits, axis=1)
       self.means = pieces[0]
       self.stdevs = tf.nn.softplus(pieces[1])
-      self.correlations = tf.nn.tanh(pieces[2])
+      self.correls = tf.nn.tanh(pieces[2])
       self.mix_weights = tf.nn.softmax(pieces[3])
       self.stroke = tf.nn.sigmoid(pieces[4])
 
-      # Reshape the means, stdevs, and mixture weights for friendly returns
+      # Reshape the means, stdevs, correlations, and mixture weights for
+      # friendly returns
       means_shape = [batch_size, seq_length, num_gaussians, 2]
       stdevs_shape = [batch_size, seq_length, num_gaussians, 2]
       mixes_shape = [batch_size, seq_length, num_gaussians, 1]
+      correls_shape = [batch_size, seq_length, num_gaussians, 2]
       self.means_ = tf.reshape(self.means, means_shape)
       self.stdevs_ = tf.reshape(self.stdevs, stdevs_shape)
       self.mix_weights_ = tf.reshape(self.mix_weights, mixes_shape)
+      self.correls_ = tf.reshape(self.correls, correls_shape)
 
       outputs_flat = tf.reshape(self.output_data, [-1, input_size])
 
       gauss_values, stroke = tf.split(outputs_flat, [input_size-1, 1], axis=1)
 
       # Grab these for sampling from the network.
-      self.gauss_params = self._get_gaussian_params(self.means, self.stdevs,
-                                                    num_gaussians)
+      self.gauss_params = \
+        self._get_gaussian_params(self.means, self.stdevs, self.correls,
+                                  num_gaussians)
 
-      # These are for actually training or evaluating the network.
+      # These are for training or evaluating the network.
       self.gauss_evals = self._eval_gaussians(gauss_values, self.means,
-                                              self.stdevs, self.correlations,
+                                              self.stdevs, self.correls,
                                               num_gaussians)
 
       print(self.gauss_evals.shape, self.mix_weights.shape)
@@ -121,13 +129,13 @@ class MDN(object):
       print(self.stroke_loss.shape)
 
       self.loss = tf.reduce_mean(-1*tf.log(self.mixture + 1e-8) + self.stroke_loss, name="loss")
+      self.loss += self.l2_penalty*tf.reduce_sum([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
       # Need to clip gradients (?)
-      optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001)
+      optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0004)
       self.train_op = optimizer.minimize(self.loss)
 
       if save:
         self.saver = tf.train.Saver()
-      #self.session.run(tf.global_variables_initializer())
 
 
   def _get_weights(self, shape, name="requested_weight"):
@@ -163,7 +171,7 @@ class MDN(object):
     return tf.matmul(input_tensor, self.weights[W_loc]) + self.biases[b_loc]
 
 
-  def _get_gaussian_params(self, means, stdevs, num_gaussians):
+  def _get_gaussian_params(self, means, stdevs, correls, num_gaussians):
     '''
     Returns the parameters of the densities in the GMM.
     '''
@@ -171,8 +179,9 @@ class MDN(object):
     with tf.variable_scope("gmm_breakdown"):
       comp_means = tf.split(means, num_gaussians, axis=1)
       comp_stdevs = tf.split(stdevs, num_gaussians, axis=1)
+      comp_correls = tf.split(correls, num_gaussians, axis=1)
 
-    return (comp_means, comp_stdevs)
+    return (comp_means, comp_stdevs, comp_correls)
 
 
   def _eval_gaussians(self, values, means, stdevs, correls, num_gaussians):
@@ -220,6 +229,38 @@ class MDN(object):
 
     return stacked_gaussians
 
+
+  def _get_mixture_sample(self, params, mix):
+    '''
+    Returns a single sample from the GMM defined by params and the mixture
+    weights.
+    Assumes that 'params' is a list of GMM parameters.
+    Assumes that 'mix' is a simple numpy array, where the mixture's shape is
+    one-dimensional, and its size is the number of gaussians in the mixture.
+    '''
+
+    # params[0] --> means
+    # params[1] --> variance terms
+    # params[2] --> correlation terms
+    # Variance terms aren't in matrix form, but we know what a 2D gaussian
+    # with correlated variables looks like, so we use this form to construct
+    # a 2D gaussian by filling in the covariance matrix and means.
+
+    sample = np.zeros_like(params[0][0])
+    for i in range(self.num_gaussians):
+      mean = params[0][i]
+      #print("  mixture_sample mean shape:", mean.shape)
+      cov = np.zeros((self.input_size - 1, self.input_size - 1))
+      for j in range(self.input_size - 1):
+        #print("  mixture_sample cov shape:", params[1][i].shape)
+        cov[j,j] = params[1][i][j]
+        #cov[j,1-j] = params[2][i][0]
+        cov[j,1-j] = params[2][i] # Zero probably removed by squeeze operation
+      #print("covariance: ", cov)
+      sample += mix[i]*np.random.multivariate_normal(mean, cov)
+    return sample[np.newaxis, np.newaxis, :]
+
+
   def train_batch(self, batch_in, batch_out):
     '''
     Trains the MDN on a single batch of input.
@@ -228,13 +269,15 @@ class MDN(object):
     '''
 
     (batch_size, sequence_length, input_size) = batch_in.shape
-    zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    zero_states = self.session.run(zero_states_)
+    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+    #zero_states = self.session.run(zero_states_)
 
     feeds = {
       self.input_data: batch_in,
       self.output_data: batch_out
     }
+
+    zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
     for i in range(self.num_lstm_layers):
       feeds[self.init_states[i][0]] = zero_states[i][0]
@@ -263,13 +306,16 @@ class MDN(object):
     '''
 
     (batch_size, sequence_length, input_size) = batch_in.shape
-    zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    zero_states = self.session.run(zero_states_)
+    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+    #zero_states = self.session.run(zero_states_)
+    #zero_states = self.session.run(self.zero_states)
 
     feeds = {
       self.input_data: batch_in,
       self.output_data: batch_out
     }
+
+    zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
     for i in range(self.num_lstm_layers):
       feeds[self.init_states[i][0]] = zero_states[i][0]
@@ -286,35 +332,6 @@ class MDN(object):
     return (loss, means_, stdevs_, mix)
 
 
-  def _get_mixture_sample(self, params, mix):
-    '''
-    Returns a single sample from the GMM defined by params and the mixture
-    weights.
-    Assumes that 'params' is a list of GMM parameters.
-    Assumes that 'mix' is a simple numpy array, where the mixture's shape is
-    one-dimensional, and its size is the number of gaussians in the mixture.
-    '''
-
-    # params[0] --> means
-    # params[1] --> variance terms
-    # params[2] --> correlation terms
-    # Variance terms aren't in matrix form, but we know what a 2D gaussian
-    # with correlated variables looks like, so we use this form to construct
-    # a 2D gaussian by filling in the covariance matrix and means.
-
-    sample = np.zeros_like(params[0][0])
-    for i in range(self.num_gaussians):
-      mean = params[0][i]
-      #print("  mixture_sample mean shape:", mean.shape)
-      cov = np.zeros((self.input_size - 1, self.input_size - 1))
-      for j in range(self.input_size - 1):
-        #print("  mixture_sample cov shape:", params[1][i].shape)
-        cov[j,j] = params[1][i][j]
-        cov[j,1-j] = params[2][i][0]
-      sample += mix[i]*np.random.multivariate_normal(mean, cov)
-    return sample[np.newaxis, np.newaxis, :]
-
-
   def _run_once(self, input_, stroke_, initial_states):
     '''
     Takes a single input, (e.g. batch_size = 1, sequence_length = 1), passes it
@@ -327,12 +344,15 @@ class MDN(object):
     '''
 
     #zero_states = self.multi_lstm_cell.zero_state(1, dtype=tf.float32)
+    #zero_states = self.session.run(self.zero_states)
     #print('run_once input and stroke shapes:', input_.shape, stroke_.shape)
 
+    # Concatenate stroke and (dx, dy) input to get (1, 1, 3) input tensor.
     feeds = {
       self.input_data: np.concatenate([input_, stroke_], axis=-1)
     }
 
+    # Initialize recurrent states with the states from the previous timestep.
     for i in range(self.num_lstm_layers):
       feeds[self.init_states[i][0]] = initial_states[i][0]
       feeds[self.init_states[i][1]] = initial_states[i][1]
@@ -350,17 +370,19 @@ class MDN(object):
     squeezed_params = []
     squeezed_params.append([np.squeeze(p) for p in params[0]])
     squeezed_params.append([np.squeeze(p) for p in params[1]])
+    squeezed_params.append([np.squeeze(p) for p in params[2]])
 
     # Need to add a way to sample from this distribution, then return the
     # value that was sampled, and the stroke probability.
-    # np.random.multivariate_normal, et voila
+    # np.random.multivariate_normal, et voila.
     
-    # Making some assumptions about dimensionality of the outputs here.
-    # Assumptions are covered in the docstring.
-    sample = self._get_mixture_sample(squeezed_params, mix)
+    # Assumptions about dimensionality of the outputs are covered in the
+    # docstring.
+    pos_sample = self._get_mixture_sample(squeezed_params, mix)
+    stroke_sample = np.random.binomial(1, stroke)
 
     #return (sample, stroke, state)
-    return (sample, stroke, state, squeezed_params, mix)
+    return (pos_sample, stroke_sample, state, squeezed_params, mix)
 
 
   def run_cyclically(self, input_, num_steps):
@@ -375,15 +397,18 @@ class MDN(object):
     elif len(input_.shape) == 1:
       input_ = np.expand_dims(input_, axis=0)
       input_ = np.expand_dims(input_, axis=0)
-    print('run_cyclically input_ shape:', input_.shape)
+    print("run_cyclically input_ shape:", input_.shape)
 
     (batch_size, sequence_length, input_size) = input_.shape
-    zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    zero_states = self.session.run(zero_states_)
+    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+    #zero_states = self.session.run(zero_states_)
+    #zero_states = self.session.run(self.zero_states)
 
     feeds = {
       self.input_data: input_
     }
+
+    zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
     for i in range(self.num_lstm_layers):
       feeds[self.init_states[i][0]] = zero_states[i][0]
@@ -398,9 +423,9 @@ class MDN(object):
 
     mix, params, stroke, init_state = \
       self.session.run(fetches, feed_dict=feeds)
-    print('mix shape:', mix.shape)
-    print('params shape:', len(params), len(params[1]), params[1][0].shape)
-    print('stroke shape:', stroke.shape)
+    print("mix shape:", mix.shape)
+    print("params shape:", len(params), len(params[1]), params[1][0].shape)
+    print("stroke shape:", stroke.shape)
 
     # Need to loop over the method "_run_once" and constantly update its
     # initial recurrent state and input value.
@@ -408,26 +433,32 @@ class MDN(object):
     strokes = []
     init_means = []
     init_covs = []
+    init_correls = []
+    states = []
     state = np.zeros_like(zero_states)
 
     for j in range(self.num_gaussians):
       init_means.append(params[0][j][-1,:])
       init_covs.append(params[1][j][-1,:])
+      init_correls.append(params[2][j][-1,:])
 
-    sample = self._get_mixture_sample([init_means, init_covs], mix[-1,:])
-    print('sample shape:', sample.shape)
+    sample = self._get_mixture_sample([init_means, init_covs, init_correls], mix[-1,:])
+    print("sample shape:", sample.shape)
     dots.append(sample)
     strokes.append(stroke[np.newaxis, np.newaxis,-1,:])
+    states.append(init_state)
 
     # Just need to stretch the dimensions of the tensors being fed back in...
     for i in range(1, num_steps):
-      temp_dot, temp_stroke, state, params_, mix_ = \
-        self._run_once(dots[i-1], strokes[i-1], init_state)
+      temp_dot, temp_stroke, temp_state, params_, mix_ = \
+        self._run_once(dots[i-1], strokes[i-1], states[i-1])
       dots.append(temp_dot)
       strokes.append(temp_stroke[np.newaxis,:,:])
-      state = init_state
+      #state = init_state
+      #init_state = state
+      states.append(temp_state)
 
-    return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1))
+    return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1)) # Getting shapes with three items: (1, sl, 2)
 
 
   def save_params(self, location, global_step):
@@ -443,7 +474,7 @@ class MDN(object):
     The checkpoint_file is filename.ckpt, which contains values of the model's
     trained parameters.
     The meta_file is filename.meta <-- don't need to import a meta graph, we
-    already know what the model is.
+    already know what the model architecture is.
     '''
 
     if not os.path.isfile(checkpoint_file):
@@ -456,4 +487,4 @@ class MDN(object):
 
 if __name__ == "__main__":
   
-  print("This is just the script that contains the MDN class!")
+  print("This is just the script that contains the MDN class! Go away.")

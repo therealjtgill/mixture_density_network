@@ -73,7 +73,7 @@ def save_weighted_means(means, weights, input_, save_dir, offset=0):
 def save_weighted_deltas(means, weights, input_, save_dir, offset=0):
   '''
   This is meant to be used with (x,y) coordinates from the input data
-  representing deltas from pen position at t=i+1 and t=i.
+  representing deltas from pen position at t=i and t=i+1.
   Successive deltas are added together (for the inputs as well as the weighted
   means) to produce an image of what was actually written.
   '''
@@ -92,8 +92,10 @@ def save_weighted_deltas(means, weights, input_, save_dir, offset=0):
   map_preds = np.stack(map_preds, axis=0)
 
   plt.figure()
-  plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
-  plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
+  #plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
+  #plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
+  plt.plot(input_[:,0], -input_[:,1], color="r")
+  plt.plot(map_preds[:,0], -map_preds[:,1], color="b")
   plt.savefig(os.path.join(save_dir, "deltasplot" + str(offset) + ".png"))
   plt.close()
 
@@ -113,6 +115,26 @@ def save_mixture_weights(weights, save_dir, offset=0):
   plt.savefig(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"))
   plt.close()
   np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
+
+
+def save_dots(dots, save_dir, offset=0):
+
+  dots = np.squeeze(dots)
+  print("dots shape: ", dots.shape)
+  sequence_length, _ = dots.shape
+  map_dots = []
+  for i in range(sequence_length):
+    if i > 0:
+      map_dots.append(dots[i,:] + map_dots[-1])
+    else:
+      map_dots.append(dots[i,:])
+  map_dots = np.stack(map_dots, axis=0)
+
+  plt.figure()
+  #plt.scatter(map_dots[:,0], -map_dots[:,1], s=2, color="b")
+  plt.plot(map_dots[:,0], -map_dots[:,1], color="b")
+  plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + ".png"))
+  plt.close()
 
 
 if __name__ == "__main__":
@@ -152,7 +174,6 @@ if __name__ == "__main__":
 
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
-  #data_dir = "data_clean/data_2018-03-25-16-15-56.863776"
   data_files = os.listdir(data_dir)
   data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
 
@@ -163,15 +184,19 @@ if __name__ == "__main__":
     print("Using the full dataset.")
     dh = dh.data_handler(data_files, [.7, .15, .15])
 
-  for i in range(10000):
+  for i in range(75000):
+    start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
+    # loss, means, stdevs, mix
     things = mdn_model.train_batch(train["X"], train["y"])
     print("mixture evaluation max: ", np.amax(things[-1]), "min: ", np.amin(things[-1]))
     print("individual gaussian evaluations max: ", np.amax(things[-2]), "min: ", np.amin(things[-2]))
-    if i % 10 == 0:
+    if i % 100 == 0:
       print("  saving images", i)
       #validate = dh.get_validation_batch(1, 10)
-
+      test = dh.get_test_batch(1, 100)
+      dots, strokes = mdn_model.run_cyclically(test["X"], 400)
+      save_dots(dots, save_dir, i)
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
       #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
@@ -182,7 +207,8 @@ if __name__ == "__main__":
       mdn_model.save_params(os.path.join(save_dir, "mdn_model"), i)
 
     #mdn_model.validate_batch(fake_train_in, fake_train_out)
-    #dots, strokes = mdn_model.run_cyclically(np.random.rand(1, 15, 3), 100)
+
     print("loss: ", things[0], "loss shape: ", things[0].shape)
+    delta = datetime.datetime.now() - start_time
     with open(os.path.join(save_dir, "_error.dat"), "a") as f:
-      f.write(str(i) + "," + str(things[0]) + "\n")
+      f.write(str(i) + "," + str(things[0]) + ", " + str(delta.total_seconds()) + "\n")
