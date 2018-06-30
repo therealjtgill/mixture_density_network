@@ -297,13 +297,14 @@ class MDN(object):
       self.mixture,
       self.means_,
       self.stdevs_,
-      self.mix_weights_
+      self.mix_weights_,
+      self.stroke
     ]
 
-    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix = self.session.run(fetches, feed_dict=feeds)
+    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke = self.session.run(fetches, feed_dict=feeds)
     print("shape of means:", means_.shape)
     print("shape of stdevs:", stdevs_.shape)
-    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval)
+    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke)
 
 
   def validate_batch(self, batch_in, batch_out):

@@ -78,7 +78,7 @@ class data_handler(object):
 		batch_out = []
 		batch_ascii = []
 		for i in line_indices:
-			print('Sequence length of line stroke at index ', i, data[i][1].shape[0])
+			#print('Sequence length of line stroke at index ', i, data[i][1].shape[0])
 			start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
 			batch_in.append(data[i][1][start_index:sequence_length + start_index, :])
 			batch_out.append(data[i][1][start_index + 1:sequence_length + start_index + 1, :])

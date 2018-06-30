@@ -70,7 +70,7 @@ def save_weighted_means(means, weights, input_, save_dir, offset=0):
   plt.close()
 
 
-def save_weighted_deltas(means, weights, input_, save_dir, offset=0):
+def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0):
   '''
   This is meant to be used with (x,y) coordinates from the input data
   representing deltas from pen position at t=i and t=i+1.
@@ -79,6 +79,8 @@ def save_weighted_deltas(means, weights, input_, save_dir, offset=0):
   '''
 
   sequence_length, num_gaussians, _ = weights.shape
+  breaks = np.squeeze(np.where(np.squeeze(stroke) > 0.8))
+  breaks_ = np.squeeze(np.where(input_[:,2] == 1))
   map_preds = []
   for i in range(sequence_length):
     pred = 0
@@ -94,8 +96,18 @@ def save_weighted_deltas(means, weights, input_, save_dir, offset=0):
   plt.figure()
   #plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
   #plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
-  plt.plot(input_[:,0], -input_[:,1], color="r")
-  plt.plot(map_preds[:,0], -map_preds[:,1], color="b")
+  if len(breaks) > 0:
+    for i in range(len(breaks)):
+      plt.plot(map_preds[breaks[i-1]+1:breaks[i],0], -map_preds[breaks[i-1]+1:breaks[i],1], color="b")
+  else:
+    plt.plot(map_preds[:,0], -map_preds[:,1], color="b")
+
+  if len(breaks_) > 0:
+    for i in range(len(breaks_)):
+      plt.plot(input_[breaks_[i-1]+1:breaks_[i],0], -input_[breaks_[i-1]+1:breaks_[i],1], color="r")
+  else:
+    plt.plot(input_[:,0], -input_[:,1], color="r")
+
   plt.savefig(os.path.join(save_dir, "deltasplot" + str(offset) + ".png"))
   plt.close()
 
@@ -117,7 +129,7 @@ def save_mixture_weights(weights, save_dir, offset=0):
   np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
 
 
-def save_dots(dots, save_dir, offset=0):
+def save_dots(dots, strokes, save_dir, offset=0):
 
 #  breaks = np.squeeze(np.where(data[:,2] == 1))
 #  print('breaks:', breaks)
@@ -129,7 +141,10 @@ def save_dots(dots, save_dir, offset=0):
 #  plt.show()
 
   dots = np.squeeze(dots)
+  breaks = np.squeeze(np.where(np.squeeze(strokes) > 0.8))
   print("dots shape: ", dots.shape)
+  print("dots breaks:", breaks)
+  print("strokes shape:", strokes.shape)
   sequence_length, _ = dots.shape
   map_dots = []
   for i in range(sequence_length):
@@ -141,7 +156,11 @@ def save_dots(dots, save_dir, offset=0):
 
   plt.figure()
   #plt.scatter(map_dots[:,0], -map_dots[:,1], s=2, color="b")
-  plt.plot(map_dots[:,0], -map_dots[:,1], color="b")
+  if len(breaks) > 0:
+    for i in range(len(breaks)):
+      plt.plot(map_dots[breaks[i-1]+1:breaks[i],0], -map_dots[breaks[i-1]+1:breaks[i],1], color="b")
+  else:
+    plt.plot(map_dots[:,0], -map_dots[:,0], color="b")
   plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + ".png"))
   plt.close()
 
@@ -161,6 +180,9 @@ if __name__ == "__main__":
   parser.add_argument("--truncatedata", action="store", dest="truncate_data", type=bool, default=False,
                       help="Optional argument to only load a portion of the training data (the first 100 files). \
                       This should be used for debugging purposes only.")
+  parser.add_argument("--iterations", action="store", dest="num_iterations", type=int, default=75000,
+                      help="Supply a maximum number of iterations of network training. This is the number of batches of \
+                      data that will be presented to the network, NOT the number of epochs.")
 
   args = parser.parse_args()
 
@@ -194,7 +216,7 @@ if __name__ == "__main__":
     print("Using the full dataset.")
     dh = dh.data_handler(data_file, [.7, .15, .15])
 
-  for i in range(75000):
+  for i in range(args.num_iterations):
     start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
     # loss, means, stdevs, mix
@@ -206,11 +228,11 @@ if __name__ == "__main__":
       #validate = dh.get_validation_batch(1, 10)
       test = dh.get_test_batch(1, 100)
       dots, strokes = mdn_model.run_cyclically(test["X"], 400)
-      save_dots(dots, save_dir, i)
+      save_dots(dots, strokes, save_dir, i)
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
       #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
-      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
+      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i)
       save_mixture_weights(things[3][0,:,:], save_dir, i)
 
     if i % 500 == 0:
