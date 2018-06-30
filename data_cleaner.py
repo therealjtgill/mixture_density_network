@@ -2,6 +2,7 @@ import argparse
 import datetime
 import numpy as np
 import os
+import pickle
 import shutil
 import sys
 import xml.etree.ElementTree as ET
@@ -141,7 +142,7 @@ def xml_with_annotations_to_csv(raw_data_location, clean_data_location, min_sequ
 
 def extract_stroke_from_xml(file_location):
 	'''
-  TODO@therealjtgill Update docstring.
+  Extracts strokesets from XML files.
 	'''
 
 	tree = ET.parse(file_location)
@@ -168,17 +169,81 @@ def extract_stroke_from_xml(file_location):
 			#print("length of stroke_data:", len(stroke_data))
 
 	stroke_data = np.vstack(stroke_data)
-	print(stroke_data.shape, stroke_data[0:10, :])
+	#print(stroke_data.shape, stroke_data[0:10, :])
 	return stroke_data
 
 
-def get_training_files(raw_data_location):
+def extract_ascii_and_stroke_from_xml(stroke_files, ascii_file):
+  '''
+  Stroke file names have the pattern
+    k10-103z-01.xml
+  Ascii file names have the pattern
+    k10-103z.txt
+  The last number in the stroke file name indicates the line number of the
+  ASCII CSR that contains the line of text corresponding to the strokeset.
+  '''
+
+  ascii_stroke_data = []
+  
+  print(ascii_file)
+  with open(ascii_file, 'r') as f:
+    lines = f.readlines()
+    for i in range(len(lines)):
+      if "CSR" in lines[i]:
+        start_index = i + 2
+        break
+    if len(lines) - start_index != len(stroke_files):
+      print("  Number of CSR lines in ascii file doesn't match number of stroke files... Bail out!")
+      return ascii_stroke_data
+    for i in reversed(range(len(stroke_files))):
+      ascii_line_number = int(stroke_files[i][-6:-4])
+      stroke_data = extract_stroke_from_xml(stroke_files[i])
+      ascii_data = lines[len(lines) - 1 - len(stroke_files) + ascii_line_number].strip()
+      #print('ascii_data:', ascii_data)
+      #print('  line number:', ascii_line_number)
+      #print('  line index being used:', len(lines) - len(stroke_files) - 1 + ascii_line_number)
+      #print('  len(lines):', len(lines))
+      #print('  len(stroke_files):', len(stroke_files))
+      ascii_stroke_data.append((ascii_data, stroke_data))
+
+  return ascii_stroke_data
+
+
+def correlate_ascii_and_stroke_files(stroke_file_locations, ascii_file_locations, min_sequence_length=300):
+  '''
+  Grabs stroke and ascii files with similar names and groups them together,
+  then extracts the information from them at the same time and groups that
+  information together.
+  '''
+
+  ascii_stroke_data = []
+  for i in range(len(ascii_file_locations)):
+    ascii_filename = ascii_file_locations[i].split(os.sep)[-1].split('.')[0]
+    ascii_file = ascii_file_locations[i]
+    stroke_files = []
+    #print('looking for stroke files with name: ', ascii_filename)
+    for j in range(len(stroke_file_locations)):
+      stroke_filename = stroke_file_locations[j].split(os.sep)[-1][:-7]
+      #print('stroke fname:', stroke_filename, 'ascii fname:', ascii_filename, 'stroke fname before chop:', stroke_file_locations[j].split(os.sep)[-1], 'ascii fname before chop:', ascii_file_locations[i].split(os.sep)[-1])
+      if ascii_filename == stroke_filename:
+        #print('  found correlation')
+        stroke_files.append(stroke_file_locations[j])
+    #print('found files: ', stroke_files)
+    if len(stroke_files) > 0:
+      ascii_stroke_data += extract_ascii_and_stroke_from_xml(stroke_files, ascii_file)
+  
+  filtered_ascii_stroke_data = [d for d in ascii_stroke_data if d[1].shape[0] > min_sequence_length]
+
+  return filtered_ascii_stroke_data
+
+
+def get_training_files(raw_data_location, ext):
   
   file_list = []
   for root, dirs, files in os.walk(raw_data_location):
     #print("files:", files)
     for file in files:
-      if file.endswith(".xml"):
+      if file.endswith(ext):
         file_list.append(os.path.join(root, file))
 
   return file_list
@@ -192,20 +257,17 @@ if __name__ == "__main__":
 
   parser.add_argument("--rawdata", action="store", type=str, required=True,
                       help="The location of the raw (extracted) XML files from the IAM online handwriting db.")
-  parser.add_argument("--cleandata", action="store", type=str,
+  parser.add_argument("--cleandata", action="store", type=str, required=True,
                       help="Where the clean data that has been extracted from XML files should be stored.")
+  parser.add_argument("--asciidata", action="store", type=str,
+                      help="Indicates that the data being loaded is lineStroke data, and that transcripts of each line should also be extracted.")
 
   args = parser.parse_args()
   clean_data_location = args.cleandata
   raw_data_location = args.rawdata
+  ascii_data_location = args.asciidata
 
   date_str = str(datetime.datetime.today()).replace(":", "-")
-  #raw_data_location = \
-  #	"C:\\Users\\gsaa\\Downloads\\lineStrokes-all.tar\\lineStrokes-all\\lineStrokes"
-  #raw_data_location = \
-  #	"data_raw/original_with_transcriptions"
-  #clean_data_location = \
-  #	"data_clean/data_" + date_str
   #copy_files(raw_data_location, out_data_location)
 
   #xml_with_annotations_to_csv(raw_data_location, clean_data_location, uid="full")
@@ -213,8 +275,12 @@ if __name__ == "__main__":
   if not os.path.isdir(clean_data_location):
     os.makedirs(clean_data_location)
 
-  training_files = get_training_files(raw_data_location)
-  print(training_files[0])
+  stroke_files = get_training_files(raw_data_location, ".xml")
+  ascii_files = get_training_files(ascii_data_location, ".txt")
 
-  stroke = extract_stroke_from_xml(training_files[0])
-  np.savetxt('test.csv', stroke, delimiter=',')
+  #stroke = extract_stroke_from_xml(training_files[0])
+  #np.savetxt('test.csv', stroke, delimiter=',')
+
+  # Saves a list of tuples of the form [(ascii text, numpy matrix of strokes),]
+  ascii_stroke_data = correlate_ascii_and_stroke_files(stroke_files, ascii_files)
+  pickle.dump(ascii_stroke_data, open(os.path.join(clean_data_location, "cleanedlabeleddata.pkl"), "wb"))

@@ -1,5 +1,6 @@
 import numpy as np
 import os
+import pickle
 import sys
 
 
@@ -10,7 +11,7 @@ class data_handler(object):
 	mdn.py.
 	'''
 
-	def __init__(self, csv_files, splits):
+	def __init__(self, pkl_file, splits):
 		'''
 		Takes in a list of CSV files and an array indicating what portion of
 		the files will be training, test, and validation sets. All files are
@@ -19,9 +20,9 @@ class data_handler(object):
 		'''
 
 		try:
-			assert(isinstance(csv_files, list) or isinstance(csv_files, tuple))
+			assert(isinstance(pkl_file, str))
 		except AssertionError:
-			sys.exit("The variable \"csv_files\" is a " + str(type(csv_files)) + " and not a list or tuple!")
+			sys.exit("The variable \"pkl_file\" is a " + str(type(pkl_file)) + " and not a str!")
 
 		try:
 			assert(sum(splits) == 1.0)
@@ -29,19 +30,20 @@ class data_handler(object):
 			print("The \"splits\" variable needs three components that sum to one.")
 			sys.exit("This was provided:" + str(splits))
 
-		print("Loading data. Processing", len(csv_files), "files.")
-		self.data_files = csv_files
-		self.data_all = [np.loadtxt(csv, delimiter=",") for csv in self.data_files]
-		self.max_sequence_length = max([d.shape[0] for d in self.data_all])
+		print("Loading data. Processing", len(pkl_file), "files.")
+		#self.data_files = pkl_file
+		#self.data_all = [np.loadtxt(csv, delimiter=",") for csv in self.data_files]
+		self.data_all = pickle.load(open(pkl_file, 'rb'))
+		self.max_sequence_length = max([d[1].shape[0] for d in self.data_all])
 
-		self.num_files = len(self.data_files)
+		self.num_lines = len(self.data_all)
 		np.random.shuffle(self.data_all)
 		print("Loading finished.")
 
 		print("Splitting data.")
-		num_train = int(self.num_files*splits[0])
-		num_test = int(self.num_files*splits[1])
-		num_validate = self.num_files - (num_train + num_test)
+		num_train = int(self.num_lines*splits[0])
+		num_test = int(self.num_lines*splits[1])
+		num_validate = self.num_lines - (num_train + num_test)
 		print("  Number train files: ", num_train)
 		print("  Number test files:", num_test)
 		print("  Number validate files:", num_validate)
@@ -70,21 +72,24 @@ class data_handler(object):
 
 		low = 0
 		high = len(data)
-		file_indices = np.random.randint(low, high, batch_size)
-		print("batches pulled from following file indices:", file_indices)
+		line_indices = np.random.randint(low, high, batch_size)
+		print("batches pulled from following line indices:", line_indices)
 		batch_in = []
 		batch_out = []
-		for i in file_indices:
-			start_index = np.random.randint(0, data[i].shape[0] - sequence_length)
-			batch_in.append(data[i][start_index:sequence_length + start_index, :])
-			batch_out.append(data[i][start_index + 1:sequence_length + start_index + 1, :])
+		batch_ascii = []
+		for i in line_indices:
+			print('Sequence length of line stroke at index ', i, data[i][1].shape[0])
+			start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
+			batch_in.append(data[i][1][start_index:sequence_length + start_index, :])
+			batch_out.append(data[i][1][start_index + 1:sequence_length + start_index + 1, :])
+			batch_ascii.append(data[i][0])
 
 		batch_in = np.stack(batch_in, axis=0)
 		batch_out = np.stack(batch_out, axis=0)
 		print(batch_in.shape)
 		print(batch_out.shape)
 
-		batch_set = {"X":batch_in, "y":batch_out}
+		batch_set = {"X":batch_in, "y":batch_out, "ascii":batch_ascii}
 
 		return batch_set
 

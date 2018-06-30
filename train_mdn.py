@@ -119,6 +119,15 @@ def save_mixture_weights(weights, save_dir, offset=0):
 
 def save_dots(dots, save_dir, offset=0):
 
+#  breaks = np.squeeze(np.where(data[:,2] == 1))
+#  print('breaks:', breaks)
+#
+#  plt.figure()
+#  for i in range(1, len(breaks)):
+#    #print('x', data[breaks[i-1]:breaks[i], 0], 'y', data[breaks[i-1]:breaks[i], 1])
+#    plt.plot(data[breaks[i-1]+1:breaks[i], 0], data[breaks[i-1]+1:breaks[i], 1])
+#  plt.show()
+
   dots = np.squeeze(dots)
   print("dots shape: ", dots.shape)
   sequence_length, _ = dots.shape
@@ -142,7 +151,7 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="The script used to train a mixture density network. Assumes that cleaned training data is present.")
 
   parser.add_argument("--traindata", action="store", dest="data_dir", type=str, required=True,
-                      help="Specify a location of training data (usually in \"./data_clean/some_folder\")")
+                      help="Specify a location of training data (usually in \"./data_clean/some_folder/data.pkl\")")
   parser.add_argument("--nummixcomps", action="store", dest="num_components", type=int, default=6,
                       help="Optional argument to specify the number of gaussians in the Gaussian Mixture Model. \
                       Note that adding more components requires a greater number of weights on the output layer.")
@@ -174,15 +183,16 @@ if __name__ == "__main__":
 
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
-  data_files = os.listdir(data_dir)
-  data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
+  #data_files = os.listdir(data_dir)
+  #data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
+  data_file = data_dir
 
   if args.truncate_data:
     print("Using the truncated dataset.")
-    dh = dh.data_handler(data_files[0:100], [.7, .15, .15])
+    dh = dh.data_handler(data_file[0:100], [.7, .15, .15])
   else:
     print("Using the full dataset.")
-    dh = dh.data_handler(data_files, [.7, .15, .15])
+    dh = dh.data_handler(data_file, [.7, .15, .15])
 
   for i in range(75000):
     start_time = datetime.datetime.now()

@@ -60,12 +60,19 @@ class MDN(object):
 
       self.init_states = tuple(self.init_states)
 
+      lstm_layers = []
       for i in range(self.num_lstm_layers):
-        self.layers.append(tf.nn.rnn_cell.BasicLSTMCell(num_lstm_cells))
+        lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(num_lstm_cells)
+        if i < self.num_lstm_layers - 1:
+          self.layers.append(lstm_cell)
+          lstm_layers.append(self.layers[-1])
+        else:
+          self.layers.append(tf.contrib.rnn.ResidualWrapper(lstm_cell))
+          lstm_layers.append(self.layers[-1])
 
       # Get a list of LSTM cells in the current set of layers, then pass those
       # to the MultiRNNCell method.
-      lstm_layers = [l for l in self.layers if "BasicLSTMCell" in str(type(l))]
+      #lstm_layers = [l for l in self.layers if "BasicLSTMCell" in str(type(l))]
       self.multi_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(lstm_layers)
 
       # LSTM layers
