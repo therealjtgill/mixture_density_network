@@ -79,8 +79,9 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0):
   '''
 
   sequence_length, num_gaussians, _ = weights.shape
-  breaks = np.squeeze(np.where(np.squeeze(stroke) > 0.8))
-  breaks_ = np.squeeze(np.where(input_[:,2] == 1))
+  print("stroke shape:", stroke.shape)
+  breaks = np.where(stroke > 0.8)[0]
+  breaks_ = np.where(input_[:,2] == 1)[0]
   map_preds = []
   for i in range(sequence_length):
     pred = 0
@@ -141,8 +142,10 @@ def save_dots(dots, strokes, save_dir, offset=0):
 #  plt.show()
 
   dots = np.squeeze(dots)
-  breaks = np.squeeze(np.where(np.squeeze(strokes) > 0.8))
-  print("dots shape: ", dots.shape)
+  # Got rid of the squeeze on strokes because it has then potential to maintain a shape of [1,1,1]
+  breaks = np.where(strokes[0,:,0] > 0.8)[0]
+  print("strokes shape:", strokes.shape)
+  print("dots shape:", dots.shape)
   print("dots breaks:", breaks)
   print("strokes shape:", strokes.shape)
   sequence_length, _ = dots.shape
@@ -171,7 +174,7 @@ if __name__ == "__main__":
 
   parser.add_argument("--traindata", action="store", dest="data_dir", type=str, required=True,
                       help="Specify a location of training data (usually in \"./data_clean/some_folder/data.pkl\")")
-  parser.add_argument("--nummixcomps", action="store", dest="num_components", type=int, default=6,
+  parser.add_argument("--nummixcomps", action="store", dest="num_components", type=int, default=20,
                       help="Optional argument to specify the number of gaussians in the Gaussian Mixture Model. \
                       Note that adding more components requires a greater number of weights on the output layer.")
   parser.add_argument("--numlayers", action="store", dest="num_layers", type=int, default=3,

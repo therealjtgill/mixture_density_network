@@ -1,8 +1,10 @@
 import tensorflow as tf
 import numpy as np
+np.set_printoptions(threshold=np.nan)
 import matplotlib.pyplot as plt
 import data_handler as dh
 import os
+import sys
 
 class MDN(object):
   '''
@@ -218,11 +220,11 @@ class MDN(object):
       gaussians = []
       for i in range(num_gaussians):
         correls_denom = tf.reduce_sum(1 - comp_correls[i]*comp_correls[i], axis=1)
-        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom))
+        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom) + 1e-8)
         print("\tfactor", i, ":", factor.shape)
         #print(self.session.run([tf.shape(comp_means[i]), tf.shape(comp_stdevs[i])]))
-        norms = (values - comp_means[i])/comp_stdevs[i]
-        exponents = -(1/(2*correls_denom))*(tf.reduce_sum(norms*norms, axis=1) - tf.reduce_prod(norms, axis=1)*2*tf.reduce_sum(comp_correls[i], axis=1))
+        norms = (values - comp_means[i])/(comp_stdevs[i] + 1e-8)
+        exponents = -(1/(2*correls_denom + 1e-8))*(tf.reduce_sum(norms*norms, axis=1) - tf.reduce_prod(norms, axis=1)*2*tf.reduce_sum(comp_correls[i], axis=1))
         print("\texponents", i, ":", exponents.shape)
         #ind_gaussians.append(factors*tf.exp(exponents))
         gaussians.append(factor*tf.exp(exponents))
@@ -298,12 +300,21 @@ class MDN(object):
       self.means_,
       self.stdevs_,
       self.mix_weights_,
-      self.stroke
+      self.stroke,
+      self.gauss_params
     ]
 
-    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke = self.session.run(fetches, feed_dict=feeds)
+    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params = self.session.run(fetches, feed_dict=feeds)
     print("shape of means:", means_.shape)
     print("shape of stdevs:", stdevs_.shape)
+    correls = params[2]
+    max_correl = 0
+    for i in range(self.num_gaussians):
+      max_correl = max(max_correl, np.amax(np.sum((correls[i]*correls[i]), axis=1)))
+    print("max_correl denom:", max_correl)
+    if max_correl > 1:
+      print("OUT OF BOUNDS VALUE FOR MAX_CORREL")
+      sys.exit(-1)
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke)
 
 
