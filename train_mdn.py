@@ -97,37 +97,17 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0):
   plt.figure()
   #plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
   #plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
-  if len(breaks) > 0:
-    for i in range(len(breaks)):
-      plt.plot(map_preds[breaks[i-1]+1:breaks[i],0], -map_preds[breaks[i-1]+1:breaks[i],1], color="b")
-  else:
-    plt.plot(map_preds[:,0], -map_preds[:,1], color="b")
-
   if len(breaks_) > 0:
-    for i in range(len(breaks_)):
+    for i in range(1, len(breaks_)):
       plt.plot(input_[breaks_[i-1]+1:breaks_[i],0], -input_[breaks_[i-1]+1:breaks_[i],1], color="r")
+    for i in range(1, len(breaks_)):
+      plt.plot(map_preds[breaks_[i-1]+1:breaks_[i],0], -map_preds[breaks_[i-1]+1:breaks_[i],1], color="b")
   else:
     plt.plot(input_[:,0], -input_[:,1], color="r")
-
+    plt.plot(map_preds[:,0], -map_preds[:,1], color="b")
+  plt.axis("scaled")
   plt.savefig(os.path.join(save_dir, "deltasplot" + str(offset) + ".png"))
   plt.close()
-
-
-def save_mixture_weights(weights, save_dir, offset=0):
-
-  sequence_length, num_gaussians, _ = weights.shape
-  #print("sample weights values:", np.squeeze(weights))
-  #print("  weights sum along last axis:", np.sum(np.squeeze(weights), axis=-1))
-  print("mixture weights shape:", weights.shape)
-  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
-  plt.figure()
-  plt.xlabel("sequence position")
-  plt.ylabel("gaussian mixture component index")
-  #plt.imsave(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"), np.squeeze(weights).T, vmin=0, vmax=1, interpolation='nearest')
-  plt.imshow(np.squeeze(weights).T, interpolation="nearest", cmap="gray", vmin=0.0, vmax=1.0)
-  plt.savefig(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"))
-  plt.close()
-  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
 
 
 def save_dots(dots, strokes, save_dir, offset=0):
@@ -160,12 +140,30 @@ def save_dots(dots, strokes, save_dir, offset=0):
   plt.figure()
   #plt.scatter(map_dots[:,0], -map_dots[:,1], s=2, color="b")
   if len(breaks) > 0:
-    for i in range(len(breaks)):
+    for i in range(1, len(breaks)):
       plt.plot(map_dots[breaks[i-1]+1:breaks[i],0], -map_dots[breaks[i-1]+1:breaks[i],1], color="b")
   else:
     plt.plot(map_dots[:,0], -map_dots[:,0], color="b")
+  plt.axis("scaled")
   plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + ".png"))
   plt.close()
+
+
+def save_mixture_weights(weights, save_dir, offset=0):
+
+  sequence_length, num_gaussians, _ = weights.shape
+  #print("sample weights values:", np.squeeze(weights))
+  #print("  weights sum along last axis:", np.sum(np.squeeze(weights), axis=-1))
+  print("mixture weights shape:", weights.shape)
+  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
+  plt.figure()
+  plt.xlabel("sequence position")
+  plt.ylabel("gaussian mixture component index")
+  #plt.imsave(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"), np.squeeze(weights).T, vmin=0, vmax=1, interpolation='nearest')
+  plt.imshow(np.squeeze(weights).T, interpolation="nearest", cmap="gray", vmin=0.0, vmax=1.0)
+  plt.savefig(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"))
+  plt.close()
+  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
 
 
 if __name__ == "__main__":

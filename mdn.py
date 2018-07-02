@@ -13,7 +13,7 @@ class MDN(object):
   '''
 
   def __init__(self, session, input_size, num_gaussians=3, num_lstm_cells=300,
-               use_correlation=True, save=False):
+               save=False):
     '''
     Sets up the computation graph for the MDN.
     Bishop, et. al, use a mixture of univariate gaussians, which allows them
@@ -81,8 +81,6 @@ class MDN(object):
       outputs, self.last_lstm_state = \
         tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype,
                           initial_state=self.init_states)
-      #outputs, self.last_lstm_state = \
-      #  tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype)
       self.zero_states = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
       outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
       self.layers.append(outputs_flat)
@@ -96,7 +94,7 @@ class MDN(object):
       pieces = tf.split(self.layers[-1], splits, axis=1)
       self.means = pieces[0]
       self.stdevs = tf.nn.softplus(pieces[1])
-      self.correls = tf.nn.tanh(pieces[2])
+      self.correls = 0.9999*tf.nn.tanh(pieces[2])
       self.mix_weights = tf.nn.softmax(pieces[3])
       self.stroke = tf.nn.sigmoid(pieces[4])
 
@@ -314,6 +312,9 @@ class MDN(object):
     print("max_correl denom:", max_correl)
     if max_correl > 1:
       print("OUT OF BOUNDS VALUE FOR MAX_CORREL")
+      sys.exit(-1)
+    if loss == np.nan:
+      print("LOSS IS NAN")
       sys.exit(-1)
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke)
 
