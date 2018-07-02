@@ -113,6 +113,7 @@ class MDN(object):
         )
       vrnn_input = self.layers[-1]
       vrnn = tf.nn.BasicRNNCell(self.num_att_gaussians*3, activation=tf.nn.relu)
+      self.layers.append(vrnn)
       attention_out, _ = \
         tf.nn.dynamic_rnn(vrnn, vrnn_input, dtype=tf.float32)
       
@@ -146,14 +147,22 @@ class MDN(object):
         gauss = alpha*tf.exp(exponent)
         #att_evals.append(gauss)
         window_weights += gauss
-      # shape(window_weights) = (bs, sl, 1)
-
+      # shape(window_weights) = (bs, sl, nc)
+      # shape(ascii_input) = (bs, nc, as)
+      # TF matmul supports matrix multiplication of tensors with rank >= 2.
+      # shape(alphabet_weights) = (bs, sl, as)
+      alphabet_weights = tf.matmul(window_weights, self.ascii_input)
+      self.layers.append(alphabet_weights)
 
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
       lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
-      self.layers.append(vrnn)
       self.layers.append(lstm_2)
       self.layers.append(lstm_3)
+
+      self.last_lstm_cells = tf.nn.rnn.MultiRNNCell([lstm_2, lstm_3])
+      outputs, _ = tf.nn.dynamic_rnn(self.last_lstm_cells, self.layers[-1], dtype=tf.float32)
+      outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
+      self.layers.append(outputs_flat)
 
       # Output layer
       shape = [lstm_cell_size, output_size]
