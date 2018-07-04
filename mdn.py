@@ -74,14 +74,13 @@ class MDN(object):
 
       # Get a list of LSTM cells in the current set of layers, then pass those
       # to the MultiRNNCell method.
-      #lstm_layers = [l for l in self.layers if "BasicLSTMCell" in str(type(l))]
       self.multi_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(lstm_layers)
 
       # LSTM layers
       outputs, self.last_lstm_state = \
         tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype,
                           initial_state=self.init_states)
-      self.zero_states = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+      self.zero_states = self.multi_lstm_cell.zero_state(batch_size, dtype=dtype)
       outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
       self.layers.append(outputs_flat)
 
@@ -276,8 +275,6 @@ class MDN(object):
     '''
 
     (batch_size, sequence_length, input_size) = batch_in.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    #zero_states = self.session.run(zero_states_)
 
     feeds = {
       self.input_data: batch_in,
@@ -326,9 +323,6 @@ class MDN(object):
     '''
 
     (batch_size, sequence_length, input_size) = batch_in.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    #zero_states = self.session.run(zero_states_)
-    #zero_states = self.session.run(self.zero_states)
 
     feeds = {
       self.input_data: batch_in,
@@ -363,8 +357,6 @@ class MDN(object):
     Assumes stroke_.shape = [1, 1, 1]
     '''
 
-    #zero_states = self.multi_lstm_cell.zero_state(1, dtype=tf.float32)
-    #zero_states = self.session.run(self.zero_states)
     #print('run_once input and stroke shapes:', input_.shape, stroke_.shape)
 
     # Concatenate stroke and (dx, dy) input to get (1, 1, 3) input tensor.
@@ -420,9 +412,6 @@ class MDN(object):
     print("run_cyclically input_ shape:", input_.shape)
 
     (batch_size, sequence_length, input_size) = input_.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-    #zero_states = self.session.run(zero_states_)
-    #zero_states = self.session.run(self.zero_states)
 
     feeds = {
       self.input_data: input_

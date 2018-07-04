@@ -55,32 +55,29 @@ class MDN(object):
       # [batch_size, seq_length, input_size]  
       self.output_data = tf.placeholder(dtype=dtype,
                                         shape=[None, None, input_size], name="batch_targets")
+
+      # Initial states for recurrent parts of the network
+      self.zero_states = []
+      self.init_states = []
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+
+      ph_v = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
+      self.init_states.append(ph_v)
+
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+      # End initial states
+
       batch_size = tf.shape(self.input_data)[0]
       seq_length = tf.shape(self.input_data)[1]
       num_chars = tf.shape(self.input_ascii)[1]
-
-      #lstm_layers = []
-      #for i in range(self.num_lstm_layers):
-      #  lstm_cell = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
-      #  if i < self.num_lstm_layers - 1:
-      #    self.layers.append(lstm_cell)
-      #    lstm_layers.append(self.layers[-1])
-      #  else:
-      #    self.layers.append(tf.contrib.rnn.ResidualWrapper(lstm_cell))
-      #    lstm_layers.append(self.layers[-1])
-
-      # Get a list of LSTM cells in the current set of layers, then pass those
-      # to the MultiRNNCell method.
-      #lstm_layers = [l for l in self.layers if "BasicLSTMCell" in str(type(l))]
-      #self.multi_lstm_cell = tf.nn.rnn_cell.MultiRNNCell(lstm_layers)
-
-      # LSTM layers
-      #outputs, self.last_lstm_state = \
-      #  tf.nn.dynamic_rnn(self.multi_lstm_cell, self.input_data, dtype=dtype,
-      #                    initial_state=self.init_states)
-      #self.zero_states = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
-      #outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
-      #self.layers.append(outputs_flat)
 
       # The attention mechanism from the paper requires an LSTM above it. Only
       # one of the parameters of the attention mechanism is recurrent, which
@@ -96,61 +93,63 @@ class MDN(object):
       #               |
       #      {ascii convolution}
 
-      first_recurrent_layers = []
+      self.recurrent_states = []
       lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
-      self.layers.append(lstm_1)
-
-      #self.first_multi_rnn_cell = tf.nn.rnn_cell.MultiRNNCell(first_recurrent_layers)
-      # size(attention_outputs) = [bs, sl, num_att_gaussians*3]
-      lstm_1_out, _ = \
-        tf.nn.dynamic_rnn(lstm_1, self.input_data, dtype=tf.float32)
+      lstm_1_out, lstm_1_state = \
+        tf.nn.dynamic_rnn(lstm_1, self.input_data, dtype=dtype,
+                          initial_state=self.init_states[0])
+      self.layers.append(lstm_1_out)
+      self.recurrent_states.append(lstm_1_state)
+      self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
       lstm_1_out_flat = tf.reshape(lstm_1_out, shape=[-1, lstm_cell_size])
+
       self._get_weights([lstm_cell_size, 3*num_att_gaussians])
       self.layers.append(
         tf.reshape(
           tf.exp(tf.matmul(lstm_1_out_flat, weights[-1])),
           shape=[batch_size, sequence_length, 3*num_att_gaussians])
         )
+      
       vrnn_input = self.layers[-1]
       vrnn = tf.nn.BasicRNNCell(self.num_att_gaussians*3, activation=tf.nn.relu)
-      self.layers.append(vrnn)
-      attention_out, _ = \
-        tf.nn.dynamic_rnn(vrnn, vrnn_input, dtype=tf.float32)
-      
-      splits = [3,]*num_att_gaussians
+      # shape(attention_out) = [bs, sl, 3*num_att_gaussians]
+      attention_out, attention_state = \
+        tf.nn.dynamic_rnn(vrnn, vrnn_input, dtype=dtype,
+                          initial_state=self.init_states[1])
+      self.layers.append(attention_out)
+      self.recurrent_states.append(attention_state)
+      self.zero_states.append(vrnn.zero_state(batch_size, dtype=dtype))
       # Get back num_att_gaussians tensors of shape [bs, sl, 3], which is a
       # tensor of attention window parameters for each attention gaussian.
       # size(attention_params) = [num_att_gaussians, bs, sl, 3]
       #   (technically a list of size 'num_att_gaussians' containing [bs, sl, 3] size tensors)
-      attention_gaussian_params = tf.split(attention_out, splits, axis=2)
+      attention_gaussian_params = tf.split(attention_out, [3,]*num_att_gaussians, axis=2)
       # Using notation from the paper:
       # attention_gaussian_params[:,:,0] = alpha
       # attention_gaussian_params[:,:,1] = beta
       # attention_gaussian_params[:,:,2] = kappa
 
       window_weights = 0
-      #att_evals = []
       for i in range(num_att_gaussians):
         # Need to evaluate each gaussian at an index value corresponding to a
         # character position in the ASCII input (axis=1).
-        # Tile the parameters at the last axis by the number of characters in
+        # Tile the parameters on the last axis by the number of characters in
         # the ascii sequence to ensure proper broadcasting. Need to get a
         # tensor with shape
         #   [bs, sl, nc] (nc = num_chars)
         # for phi, and a tensor with shape
         #   [bs, sl, as] (as = alphabet_size)
         # for the actual windowed weight.
-        attention_gaussian_params_tiled = tf.tile(attention_gaussian_params[i], [1, 1, 3*num_chars])
+        attention_gaussian_params_tiled = tf.tile(attention_gaussian_params[i], [1, 1, num_chars])
         [alpha, beta, kappa] = tf.split(attention_gaussian_params_tiled, [num_chars,]*3, axis=2)
-        indices = tf.range(num_chars, dtype=tf.float32)
-        exponent = -1*beta*(tf.square(kappa - indices))
+        index_vals = tf.range(num_chars, dtype=dtype) # Integer values of 'u' in phi
+        exponent = -1*beta*(tf.square(kappa - index_vals)) # Broadcasting works without changing shape of index_vals
         gauss = alpha*tf.exp(exponent)
-        #att_evals.append(gauss)
         window_weights += gauss
-      # shape(window_weights) = (bs, sl, nc)
-      # shape(ascii_input) = (bs, nc, as)
+      # shape(window_weights) = [bs, sl, nc]
+      # shape(ascii_input) = [bs, nc, as]
       # TF matmul supports matrix multiplication of tensors with rank >= 2.
-      # shape(alphabet_weights) = (bs, sl, as)
+      # shape(alphabet_weights) = [bs, sl, as]
       alphabet_weights = tf.matmul(window_weights, self.ascii_input)
       self.layers.append(alphabet_weights)
 
@@ -159,10 +158,15 @@ class MDN(object):
       self.layers.append(lstm_2)
       self.layers.append(lstm_3)
 
-      self.last_lstm_cells = tf.nn.rnn.MultiRNNCell([lstm_2, lstm_3])
-      outputs, _ = tf.nn.dynamic_rnn(self.last_lstm_cells, self.layers[-1], dtype=tf.float32)
+      last_lstm_cells = tf.nn.rnn.MultiRNNCell([lstm_2, lstm_3])
+      outputs, outputs_state = \
+        tf.nn.dynamic_rnn(last_lstm_cells, alphabet_weights, dtype=dtype,
+                          initial_state=self.init_states[2:])
       outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
+      self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
+      self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
+      self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
 
       # Output layer
       shape = [lstm_cell_size, output_size]
@@ -355,7 +359,7 @@ class MDN(object):
     '''
 
     (batch_size, sequence_length, input_size) = batch_in.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=dtype)
     #zero_states = self.session.run(zero_states_)
 
     feeds = {
@@ -402,7 +406,7 @@ class MDN(object):
     '''
 
     (batch_size, sequence_length, input_size) = batch_in.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=dtype)
     #zero_states = self.session.run(zero_states_)
     #zero_states = self.session.run(self.zero_states)
 
@@ -439,7 +443,7 @@ class MDN(object):
     Assumes stroke_.shape = [1, 1, 1]
     '''
 
-    #zero_states = self.multi_lstm_cell.zero_state(1, dtype=tf.float32)
+    #zero_states = self.multi_lstm_cell.zero_state(1, dtype=dtype)
     #zero_states = self.session.run(self.zero_states)
     #print('run_once input and stroke shapes:', input_.shape, stroke_.shape)
 
@@ -496,7 +500,7 @@ class MDN(object):
     print("run_cyclically input_ shape:", input_.shape)
 
     (batch_size, sequence_length, input_size) = input_.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=tf.float32)
+    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=dtype)
     #zero_states = self.session.run(zero_states_)
     #zero_states = self.session.run(self.zero_states)
 

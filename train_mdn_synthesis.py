@@ -184,8 +184,6 @@ if __name__ == "__main__":
   parser.add_argument("--iterations", action="store", dest="num_iterations", type=int, default=75000,
                       help="Supply a maximum number of iterations of network training. This is the number of batches of \
                       data that will be presented to the network, NOT the number of epochs.")
-  parser.add_argument("--selfcycles", action="store", dest="num_cycles", type=int, default=400,
-                      help="Have the network generate its own data points for this number of timesteps.")
 
   args = parser.parse_args()
 
@@ -229,8 +227,6 @@ if __name__ == "__main__":
     if i % 100 == 0:
       print("  saving images", i)
       #validate = dh.get_validation_batch(1, 10)
-      test = dh.get_test_batch(1, 100)
-      dots, strokes = mdn_model.run_cyclically(test["X"], args.num_cycles)
       save_dots(dots, strokes, save_dir, i)
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
