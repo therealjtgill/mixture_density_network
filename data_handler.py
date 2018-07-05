@@ -108,7 +108,7 @@ class data_handler(object):
       start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
       batch_in.append(data[i][1][start_index:sequence_length + start_index, :])
       batch_out.append(data[i][1][start_index + 1:sequence_length + start_index + 1, :])
-      batch_ascii.append(data[i][0])
+      batch_ascii.append(data[i][0].lstrip().rstrip())
       ascii_data = data[i][0]
       batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in ascii_data], axis=1).T) #ugly
 

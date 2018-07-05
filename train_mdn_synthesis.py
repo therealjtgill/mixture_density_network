@@ -36,7 +36,7 @@ def save_weighted_means(means, weights, input_, save_dir, offset=0):
   plt.close()
 
 
-def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0):
+def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0, title=""):
   '''
   This is meant to be used with (x,y) coordinates from the input data
   representing deltas from pen position at t=i and t=i+1.
@@ -61,6 +61,7 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0):
   map_preds = np.stack(map_preds, axis=0)
 
   plt.figure()
+  plt.title(title)
   #plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
   #plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
   if len(breaks_) > 0:
@@ -115,14 +116,30 @@ def save_dots(dots, strokes, save_dir, offset=0):
   plt.close()
 
 
-def save_mixture_weights(weights, save_dir, offset=0):
+def save_attention_weights(att, save_dir, offset=0, suffix="", title=""):
+
+  num_chars, alphabet_size = att.shape
+  print("attention weights shape:", att.shape)
+  np.savetxt(os.path.join(save_dir, "attention_weights" + suffix + str(i) + ".dat"), np.squeeze(att))
+  plt.figure()
+  plt.title(title)
+  plt.xlabel("sequence position")
+  plt.ylabel("alphabet index")
+  plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", vmin=0.0, vmax=1.0)
+  plt.savefig(os.path.join(save_dir, "attention_weights" + str(i) + ".png"))
+  plt.close()
+  np.savetxt(os.path.join(save_dir, "attention_weights" + str(i) + ".dat"), np.squeeze(att))
+
+
+def save_mixture_weights(weights, save_dir, offset=0, suffix="", title=""):
 
   sequence_length, num_gaussians, _ = weights.shape
   #print("sample weights values:", np.squeeze(weights))
   #print("  weights sum along last axis:", np.sum(np.squeeze(weights), axis=-1))
   print("mixture weights shape:", weights.shape)
-  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
+  np.savetxt(os.path.join(save_dir, "mixture_weights" + suffix + str(i) + ".dat"), np.squeeze(weights))
   plt.figure()
+  plt.title(title)
   plt.xlabel("sequence position")
   plt.ylabel("gaussian mixture component index")
   #plt.imsave(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"), np.squeeze(weights).T, vmin=0, vmax=1, interpolation='nearest')
@@ -200,8 +217,9 @@ if __name__ == "__main__":
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
       #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
-      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i)
-      save_mixture_weights(things[3][0,:,:], save_dir, i)
+      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i, title=train["ascii"][0])
+      save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=train["ascii"][0])
+      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", title=train["ascii"][0], offset=i)
 
     if i % 500 == 0:
       mdn_model.save_params(os.path.join(save_dir, "mdn_model"), i)

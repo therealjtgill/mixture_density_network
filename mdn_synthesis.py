@@ -149,9 +149,9 @@ class AttentionMDN(object):
       # shape(window_weights) = [bs, sl, nc]
       # shape(ascii_input) = [bs, nc, as]
       # TF matmul supports matrix multiplication of tensors with rank >= 2.
-      # shape(alphabet_weights) = [bs, sl, as]
-      alphabet_weights = tf.matmul(window_weights, self.input_ascii)
-      self.layers.append(alphabet_weights)
+      # shape(self.alphabet_weights) = [bs, sl, as]
+      self.alphabet_weights = tf.matmul(window_weights, self.input_ascii)
+      self.layers.append(self.alphabet_weights)
 
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
       lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
@@ -160,7 +160,7 @@ class AttentionMDN(object):
 
       last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
       outputs, outputs_state = \
-        tf.nn.dynamic_rnn(last_lstm_cells, alphabet_weights, dtype=dtype,
+        tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
                           initial_state=tuple(self.init_states[2:]))
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
@@ -390,10 +390,11 @@ class AttentionMDN(object):
       self.stdevs_,
       self.mix_weights_,
       self.stroke,
-      self.gauss_params
+      self.gauss_params,
+      self.alphabet_weights
     ]
 
-    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params = self.session.run(fetches, feed_dict=feeds)
+    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw = self.session.run(fetches, feed_dict=feeds)
     print("shape of means:", means_.shape)
     print("shape of stdevs:", stdevs_.shape)
     correls = params[2]
@@ -404,7 +405,7 @@ class AttentionMDN(object):
     if max_correl > 1:
       print("OUT OF BOUNDS VALUE FOR MAX_CORREL")
       sys.exit(-1)
-    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke)
+    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw)
 
 
   def validate_batch(self, batch_in, batch_one_hots, batch_out):
