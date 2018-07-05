@@ -1,4 +1,4 @@
-from mdn import MDN
+from mdn_synthesis import AttentionMDN
 from utils import gaussian_mixture_contour
 
 import argparse
@@ -11,40 +11,6 @@ import data_handler as dh
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-
-
-def save_prediction_heatmap(means, stdevs, weights, input_, save_dir, offset=0):
-  '''
-  Expects means and stdevs to have the shape:
-  means.shape = [sequence_length, num_gaussians, num_params]
-  stdevs.shape = [sequence_length, num_gaussians, num_params]
-  weights.shape = [sequence_length, num_gaussians, 1]
-  '''
-  x_box = (np.amin(means[:, :, 0]) - 0.25, np.amax(means[:, :, 0]) + 0.25)
-  y_box = (np.amin(means[:, :, 1]) - 0.25, np.amax(means[:, :, 1]) + 0.25)
-
-  x_grid, y_grid = np.mgrid[x_box[0]:x_box[1]:0.01,
-                            y_box[0]:y_box[1]:0.01]
-
-  #print("printout mix_weights shape:", weights.shape)
-  #print("printout stdevs shape:", stdevs.shape)
-  sequence_length, num_gaussians, _ = weights.shape
-
-  z = None
-  for i in range(sequence_length):
-    #print("printout stdevs vals:", stdevs[i, 0, :])
-    covars = [np.diag(stdevs[i, j, :]) for j in range(num_gaussians)]
-    if i == 0:
-      z = gaussian_mixture_contour(means[i], covars, weights[i], x_box, y_box)
-    else:
-      z += gaussian_mixture_contour(means[i], covars, weights[i], x_box, y_box)
-
-  #return z
-  plt.figure()
-  plt.contourf(x_grid, -y_grid, z)
-  plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
-  plt.savefig(os.path.join(save_dir, "heatmap" + str(offset) + ".png"))
-  plt.close()
 
 
 def save_weighted_means(means, weights, input_, save_dir, offset=0):
@@ -171,8 +137,9 @@ if __name__ == "__main__":
   parser = argparse.ArgumentParser(description="The script used to train a mixture density network. Assumes that cleaned training data is present.")
 
   parser.add_argument("--traindata", action="store", dest="data_dir", type=str, required=True,
-                      help="Specify a location of training data (usually in \"./data_clean/some_folder/data.pkl\")")
-  parser.add_argument("--nummixcomps", action="store", dest="num_components", type=int, default=20,
+                      help="Specify the location of a training data pickle file, including the filename (usually in \"./data_clean/some_folder/data.pkl\"). \
+                      This pickle file only exists if you've run data_cleaner.py on the original dataset.")
+  parser.add_argument("--nummixcomps", action="store", dest="num_mix_components", type=int, default=20,
                       help="Optional argument to specify the number of gaussians in the Gaussian Mixture Model. \
                       Note that adding more components requires a greater number of weights on the output layer.")
   parser.add_argument("--numlayers", action="store", dest="num_layers", type=int, default=3,
@@ -184,30 +151,21 @@ if __name__ == "__main__":
   parser.add_argument("--iterations", action="store", dest="num_iterations", type=int, default=75000,
                       help="Supply a maximum number of iterations of network training. This is the number of batches of \
                       data that will be presented to the network, NOT the number of epochs.")
+  parser.add_argument("--selfcycles", action="store", dest="num_cycles", type=int, default=400,
+                      help="Have the network generate its own data points for this number of timesteps.")
 
   args = parser.parse_args()
 
   data_dir = args.data_dir
-  num_components = args.num_components
+  num_mix_components = args.num_mix_components
   num_layers = args.num_layers
-  #num_data_files = args.num_data_files
+  num_att_components = 20
+  input_size = 3
 
   if not os.path.exists(data_dir):
+    print("Could not find data at location: %s\nExiting." % data_dir)
     sys.exit(-1)
 
-  session = tf.Session()
-  mdn_model = MDN(session, num_layers, num_components, 250, save=True)
-  session.run(tf.global_variables_initializer())
-  save = tf.train.Saver()
-
-  save_dir = os.path.expanduser("~/documents/mdn_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-")
-  if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
-
-  writer = tf.summary.FileWriter(save_dir, graph=session.graph)
-
-  #data_files = os.listdir(data_dir)
-  #data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
   data_file = data_dir
 
   if args.truncate_data:
@@ -217,17 +175,28 @@ if __name__ == "__main__":
     print("Using the full dataset.")
     dh = dh.data_handler(data_file, [.7, .15, .15])
 
+  session = tf.Session()
+  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True)
+  session.run(tf.global_variables_initializer())
+  save = tf.train.Saver()
+
+  save_dir = os.path.expanduser("~/documents/mdn_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-")
+  if not os.path.exists(save_dir):
+    os.makedirs(save_dir)
+
+  writer = tf.summary.FileWriter(save_dir, graph=session.graph)
+
   for i in range(args.num_iterations):
     start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
     # loss, means, stdevs, mix
-    things = mdn_model.train_batch(train["X"], train["y"])
+    things = mdn_model.train_batch(train["X"], train["onehot"], train["y"])
     print("mixture evaluation max: ", np.amax(things[-1]), "min: ", np.amin(things[-1]))
     print("individual gaussian evaluations max: ", np.amax(things[-2]), "min: ", np.amin(things[-2]))
     if i % 100 == 0:
       print("  saving images", i)
       #validate = dh.get_validation_batch(1, 10)
-      save_dots(dots, strokes, save_dir, i)
+      #save_dots(dots, strokes, save_dir, i)
       #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
       #valid = mdn_model.validate_batch(validate["X"], validate["y"])
       #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)

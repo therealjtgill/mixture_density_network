@@ -204,7 +204,7 @@ def extract_ascii_and_stroke_from_xml(stroke_files, ascii_file):
       #print('  line index being used:', len(lines) - len(stroke_files) - 1 + ascii_line_number)
       #print('  len(lines):', len(lines))
       #print('  len(stroke_files):', len(stroke_files))
-      ascii_stroke_data.append((ascii_data, stroke_data))
+      ascii_stroke_data.append([ascii_data, stroke_data])
 
   return ascii_stroke_data
 

@@ -6,7 +6,7 @@ import data_handler as dh
 import os
 import sys
 
-class MDN(object):
+class AttentionMDN(object):
   '''
   Contains useful methods for training, testing, and validating a mixture
   density network.
@@ -59,25 +59,25 @@ class MDN(object):
       # Initial states for recurrent parts of the network
       self.zero_states = []
       self.init_states = []
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
 
       ph_v = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
       self.init_states.append(ph_v)
 
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
 
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, num_lstm_cells])
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
       # End initial states
 
-      batch_size = tf.shape(self.input_data)[0]
-      seq_length = tf.shape(self.input_data)[1]
-      num_chars = tf.shape(self.input_ascii)[1]
+      batch_size = tf.cast(tf.shape(self.input_data)[0], tf.int32)
+      seq_length = tf.cast(tf.shape(self.input_data)[1], tf.int32)
+      num_chars = tf.cast(tf.shape(self.input_ascii)[1], tf.int32)
 
       # The attention mechanism from the paper requires an LSTM above it. Only
       # one of the parameters of the attention mechanism is recurrent, which
@@ -106,12 +106,12 @@ class MDN(object):
       self._get_weights([lstm_cell_size, 3*num_att_gaussians])
       self.layers.append(
         tf.reshape(
-          tf.exp(tf.matmul(lstm_1_out_flat, weights[-1])),
-          shape=[batch_size, sequence_length, 3*num_att_gaussians])
+          tf.exp(tf.matmul(lstm_1_out_flat, self.weights[-1])),
+          shape=[batch_size, seq_length, 3*num_att_gaussians])
         )
       
       vrnn_input = self.layers[-1]
-      vrnn = tf.nn.BasicRNNCell(self.num_att_gaussians*3, activation=tf.nn.relu)
+      vrnn = tf.nn.rnn_cell.BasicRNNCell(self.num_att_gaussians*3, activation=tf.nn.relu)
       # shape(attention_out) = [bs, sl, 3*num_att_gaussians]
       attention_out, attention_state = \
         tf.nn.dynamic_rnn(vrnn, vrnn_input, dtype=dtype,
@@ -142,7 +142,7 @@ class MDN(object):
         # for the actual windowed weight.
         attention_gaussian_params_tiled = tf.tile(attention_gaussian_params[i], [1, 1, num_chars])
         [alpha, beta, kappa] = tf.split(attention_gaussian_params_tiled, [num_chars,]*3, axis=2)
-        index_vals = tf.range(num_chars, dtype=dtype) # Integer values of 'u' in phi
+        index_vals = tf.range(tf.cast(num_chars, tf.float32), dtype=dtype) # Integer values of 'u' in phi
         exponent = -1*beta*(tf.square(kappa - index_vals)) # Broadcasting works without changing shape of index_vals
         gauss = alpha*tf.exp(exponent)
         window_weights += gauss
@@ -150,7 +150,7 @@ class MDN(object):
       # shape(ascii_input) = [bs, nc, as]
       # TF matmul supports matrix multiplication of tensors with rank >= 2.
       # shape(alphabet_weights) = [bs, sl, as]
-      alphabet_weights = tf.matmul(window_weights, self.ascii_input)
+      alphabet_weights = tf.matmul(window_weights, self.input_ascii)
       self.layers.append(alphabet_weights)
 
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
@@ -158,11 +158,11 @@ class MDN(object):
       self.layers.append(lstm_2)
       self.layers.append(lstm_3)
 
-      last_lstm_cells = tf.nn.rnn.MultiRNNCell([lstm_2, lstm_3])
+      last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, alphabet_weights, dtype=dtype,
-                          initial_state=self.init_states[2:])
-      outputs_flat = tf.reshape(outputs, [-1, num_lstm_cells], name="dynamic_rnn_reshape")
+                          initial_state=tuple(self.init_states[2:]))
+      outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
       self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
@@ -351,7 +351,7 @@ class MDN(object):
     return sample[np.newaxis, np.newaxis, :]
 
 
-  def train_batch(self, batch_in, batch_out):
+  def train_batch(self, batch_in, batch_one_hots, batch_out):
     '''
     Trains the MDN on a single batch of input.
     Returns the loss, parameters of each gaussian, and the weights associated
@@ -364,14 +364,22 @@ class MDN(object):
 
     feeds = {
       self.input_data: batch_in,
-      self.output_data: batch_out
+      self.output_data: batch_out,
+      self.input_ascii: batch_one_hots
     }
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
-    for i in range(self.num_lstm_layers):
-      feeds[self.init_states[i][0]] = zero_states[i][0]
-      feeds[self.init_states[i][1]] = zero_states[i][1]
+    #for i in range(self.num_lstm_layers):
+    #  feeds[self.init_states[i][0]] = zero_states[i][0]
+    #  feeds[self.init_states[i][1]] = zero_states[i][1]
+    feeds[self.init_states[0][0]] = zero_states[0][0]
+    feeds[self.init_states[0][1]] = zero_states[0][1]
+    feeds[self.init_states[1]] = zero_states[1]
+    feeds[self.init_states[2][0]] = zero_states[2][0]
+    feeds[self.init_states[2][1]] = zero_states[2][1]
+    feeds[self.init_states[3][0]] = zero_states[3][0]
+    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.train_op,
@@ -399,7 +407,7 @@ class MDN(object):
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke)
 
 
-  def validate_batch(self, batch_in, batch_out):
+  def validate_batch(self, batch_in, batch_one_hots, batch_out):
     '''
     Runs the network on the given input batch and calculates a loss using the
     output batch. No training is performed.
@@ -412,14 +420,22 @@ class MDN(object):
 
     feeds = {
       self.input_data: batch_in,
-      self.output_data: batch_out
+      self.output_data: batch_out,
+      self.input_ascii: batch_one_hots
     }
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
-    for i in range(self.num_lstm_layers):
-      feeds[self.init_states[i][0]] = zero_states[i][0]
-      feeds[self.init_states[i][1]] = zero_states[i][1]
+    #for i in range(self.num_lstm_layers):
+    #  feeds[self.init_states[i][0]] = zero_states[i][0]
+    #  feeds[self.init_states[i][1]] = zero_states[i][1]
+    feeds[self.init_states[0][0]] = zero_states[0][0]
+    feeds[self.init_states[0][1]] = zero_states[0][1]
+    feeds[self.init_states[1]] = zero_states[1]
+    feeds[self.init_states[2][0]] = zero_states[2][0]
+    feeds[self.init_states[2][1]] = zero_states[2][1]
+    feeds[self.init_states[3][0]] = zero_states[3][0]
+    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.loss,
@@ -453,9 +469,16 @@ class MDN(object):
     }
 
     # Initialize recurrent states with the states from the previous timestep.
-    for i in range(self.num_lstm_layers):
-      feeds[self.init_states[i][0]] = initial_states[i][0]
-      feeds[self.init_states[i][1]] = initial_states[i][1]
+    #for i in range(self.num_lstm_layers):
+    #  feeds[self.init_states[i][0]] = initial_states[i][0]
+    #  feeds[self.init_states[i][1]] = initial_states[i][1]
+    feeds[self.init_states[0][0]] = initial_states[0][0]
+    feeds[self.init_states[0][1]] = initial_states[0][1]
+    feeds[self.init_states[1]] = initial_states[1]
+    feeds[self.init_states[2][0]] = initial_states[2][0]
+    feeds[self.init_states[2][1]] = initial_states[2][1]
+    feeds[self.init_states[3][0]] = initial_states[3][0]
+    feeds[self.init_states[3][1]] = initial_states[3][1]
 
     fetches = [
       self.mix_weights,
@@ -510,9 +533,16 @@ class MDN(object):
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
-    for i in range(self.num_lstm_layers):
-      feeds[self.init_states[i][0]] = zero_states[i][0]
-      feeds[self.init_states[i][1]] = zero_states[i][1]
+    #for i in range(self.num_lstm_layers):
+    #  feeds[self.init_states[i][0]] = zero_states[i][0]
+    #  feeds[self.init_states[i][1]] = zero_states[i][1]
+    feeds[self.init_states[0][0]] = zero_states[0][0]
+    feeds[self.init_states[0][1]] = zero_states[0][1]
+    feeds[self.init_states[1]] = zero_states[1]
+    feeds[self.init_states[2][0]] = zero_states[2][0]
+    feeds[self.init_states[2][1]] = zero_states[2][1]
+    feeds[self.init_states[3][0]] = zero_states[3][0]
+    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.mix_weights,

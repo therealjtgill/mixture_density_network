@@ -198,7 +198,7 @@ if __name__ == "__main__":
     sys.exit(-1)
 
   session = tf.Session()
-  mdn_model = MDN(session, num_layers, num_components, 250, save=True)
+  mdn_model = MDN(session, 3, num_components, 250, save=True)
   session.run(tf.global_variables_initializer())
   save = tf.train.Saver()
 
