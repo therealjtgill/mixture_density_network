@@ -1,10 +1,9 @@
 import tensorflow as tf
 import numpy as np
 np.set_printoptions(threshold=np.nan)
-import matplotlib.pyplot as plt
-import data_handler as dh
 import os
 import sys
+from window_cell import WindowCell
 
 class AttentionMDN(object):
   '''
@@ -59,20 +58,24 @@ class AttentionMDN(object):
       # Initial states for recurrent parts of the network
       self.zero_states = []
       self.init_states = []
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+      #self.init_states.append([ph_c, ph_h])
 
-      ph_v = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
+      ph_v = tf.placeholder(dtype=dtype, shape=[None, num_att_gaussians])
       self.init_states.append(ph_v)
 
       ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+      #self.init_states.append([ph_c, ph_h])
 
       ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+      #self.init_states.append([ph_c, ph_h])
+      self.init_states = tuple(self.init_states)
       # End initial states
 
       batch_size = tf.cast(tf.shape(self.input_data)[0], tf.int32)
@@ -83,46 +86,20 @@ class AttentionMDN(object):
       # one of the parameters of the attention mechanism is recurrent, which
       # means that we need to split the output of the LSTM between recurrent
       # and non-recurrent output.
-      #
-      #               |
-      #   (s_t-1)-->LSTM1-->(s_t)
-      #               |
-      #    exp([kh_t, ah_t, bh_t])
-      #               |
-      #    (h_t-1)-->VRNN-->[h_t]
-      #               |
-      #      {ascii convolution}
 
+      # Attention Mechanism
       self.recurrent_states = []
-      lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
-      lstm_1_out, lstm_1_state = \
-        tf.nn.dynamic_rnn(lstm_1, self.input_data, dtype=dtype,
-                          initial_state=self.init_states[0])
-      self.layers.append(lstm_1_out)
-      self.recurrent_states.append(lstm_1_state)
-      self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
-      lstm_1_out_flat = tf.reshape(lstm_1_out, shape=[-1, lstm_cell_size])
-
-      self._get_weights([lstm_cell_size, 3*num_att_gaussians])
-      self.layers.append(
-        tf.reshape(
-          tf.exp(tf.matmul(lstm_1_out_flat, self.weights[-1])),
-          shape=[batch_size, seq_length, 3*num_att_gaussians])
-        )
-      
-      vrnn_input = self.layers[-1]
-      vrnn = tf.nn.rnn_cell.BasicRNNCell(self.num_att_gaussians*3, activation=tf.nn.relu)
-      # shape(attention_out) = [bs, sl, 3*num_att_gaussians]
+      lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(3*num_att_gaussians)
+      window = WindowCell(self.num_att_gaussians)
+      first_rnn_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_1, window])
       attention_out, attention_state = \
-        tf.nn.dynamic_rnn(vrnn, vrnn_input, dtype=dtype,
-                          initial_state=self.init_states[1])
-      self.layers.append(attention_out)
-      self.recurrent_states.append(attention_state)
-      self.zero_states.append(vrnn.zero_state(batch_size, dtype=dtype))
+        tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
+          initial_state=self.init_states[0:2])
       # Get back num_att_gaussians tensors of shape [bs, sl, 3], which is a
       # tensor of attention window parameters for each attention gaussian.
       # size(attention_params) = [num_att_gaussians, bs, sl, 3]
-      #   (technically a list of size 'num_att_gaussians' containing [bs, sl, 3] size tensors)
+      #   (technically a list of size 'num_att_gaussians' with [bs, sl, 3] size 
+      #   tensors at each element of the list)
       attention_gaussian_params = tf.split(attention_out, [3,]*num_att_gaussians, axis=2)
       # Using notation from the paper:
       # attention_gaussian_params[:,:,0] = alpha
@@ -153,15 +130,16 @@ class AttentionMDN(object):
       self.alphabet_weights = tf.matmul(window_weights, self.input_ascii)
       self.layers.append(self.alphabet_weights)
 
-      lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
-      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
+      # Final Recurrent Layers
+      lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
+      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="b")
       self.layers.append(lstm_2)
       self.layers.append(lstm_3)
 
       last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
-                          initial_state=tuple(self.init_states[2:]))
+                          initial_state=self.init_states[2:])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
@@ -312,8 +290,6 @@ class AttentionMDN(object):
 
       # You have a gaussian for each set of components of the mixture model,
       # now you just have to reduce those components into the pieces of the GMM.
-
-      #gaussians = [tf.reduce_prod(g, axis=-1) for g in ind_gaussians]
       stacked_gaussians = tf.stack(gaussians, axis=1)
       print("stacked gaussians shape:", stacked_gaussians.shape)
 

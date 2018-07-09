@@ -13,10 +13,8 @@ class data_handler(object):
 
   def __init__(self, pkl_file, splits):
     '''
-    Takes in a list of CSV files and an array indicating what portion of
-    the files will be training, test, and validation sets. All files are
-    treated as separate entities. When batches are generated, a sequence
-    pulled from a single file constitutes one of the elements of the batch.
+    Takes in a pkl file and an array indicating what portions of the pickle
+    will be training, test, and validation sets.
     '''
 
     try:
@@ -67,6 +65,8 @@ class data_handler(object):
     print("data sample: ", self.data_all[0][0])
     self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
     self.one_hot_alphabet_dict = {char:np.eye(len(self.alphabet), dtype=np.float32)[i] for i, char in enumerate(self.alphabet)}
+    # "@" denotes an end of sequence; used to pad ascii one-hots.
+    self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
     print("alphabet: ", self.alphabet)
     print("one hot alphabet: ", self.one_hot_alphabet_dict)
     #print("alphabet size: ", len(self.alphabet))
@@ -74,11 +74,18 @@ class data_handler(object):
 
 
   def alphabet_size(self):
+    '''
+  	Returns the number of characters being used to represent ASCII labels of
+  	the line stroke data.
+  	'''
 
     return len(self.alphabet)
 
 
   def get_batch(self, batch_size, sequence_length, dataset):
+    '''
+    One-stop shop to get batches from any of the sets.
+  	'''
 
     try:
       assert(sequence_length <= self.max_sequence_length)
@@ -103,14 +110,37 @@ class data_handler(object):
     batch_ascii = []
     # Need to make these all the same length
     batch_ascii_one_hot = []
+    max_num_chars = 0
     for i in line_indices:
       #print('Sequence length of line stroke at index ', i, data[i][1].shape[0])
+      # Count the number of points in the entire linestroke, divide number of
+      # points by the number of characters in the line. Reduce the number of
+      # characters based on the start index offset and the sequence length.
+      # Need to pad ASCII sequences with something to make their lengths match.
+      num_points_in_line = data[i][1].shape[0]
+      num_chars_in_line = len(data[i][0])
+      if num_chars_in_line > max_num_chars:
+        max_num_chars = num_chars_in_line
+      num_chars_per_point = num_chars_in_line/num_points_in_line
       start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
+      char_offset = int(start_index*num_chars_per_point)
+      print("----------------------")
+      print("num_points_in_line:", num_points_in_line)
+      print("num_chars_in_line:", num_chars_in_line)
+      print("num_chars_per_point:", num_chars_per_point)
+      num_chars = int(sequence_length*num_chars_per_point)
+      print("num_chars:", num_chars)
       batch_in.append(data[i][1][start_index:sequence_length + start_index, :])
       batch_out.append(data[i][1][start_index + 1:sequence_length + start_index + 1, :])
-      batch_ascii.append(data[i][0].lstrip().rstrip())
-      ascii_data = data[i][0]
-      batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in ascii_data], axis=1).T) #ugly
+      ascii_data = data[i][0][char_offset:char_offset + num_chars]
+      print("complete ascii data:", data[i][0])
+      print("truncated ascii data:", ascii_data)
+      batch_ascii.append(ascii_data.lstrip().rstrip()) # Remove leading and trailing spaces.
+
+    for i in range(len(batch_ascii)):
+      if len(batch_ascii[i]) < max_num_chars:
+        batch_ascii[i] += '@'*(max_num_chars - len(batch_ascii[i]))
+      batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in batch_ascii[i]], axis=1).T) #ugly
 
     batch_in = np.stack(batch_in, axis=0)
     batch_out = np.stack(batch_out, axis=0)
@@ -143,6 +173,6 @@ if __name__ == "__main__":
 #  data_files = os.listdir(data_dir)
 #  data_files = [os.path.join(data_dir, d) for d in data_files if ".csv" in d]
   dh = data_handler("./data_clean/cleanedlabeleddata.pkl", [.7, .15, .15])
-  dh.get_train_batch(64, 100)
-  dh.get_test_batch(63, 99)
-  dh.get_validation_batch(62, 98)
+  dh.get_train_batch(64, 300)
+  dh.get_test_batch(63, 299)
+  dh.get_validation_batch(62, 298)
