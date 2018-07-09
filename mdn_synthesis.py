@@ -100,6 +100,9 @@ class AttentionMDN(object):
       # size(attention_params) = [num_att_gaussians, bs, sl, 3]
       #   (technically a list of size 'num_att_gaussians' with [bs, sl, 3] size 
       #   tensors at each element of the list)
+      self.layers.append(attention_out)
+      self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
+      self.zero_states.append(window.zero_state(batch_size, dtype=dtype))
       attention_gaussian_params = tf.split(attention_out, [3,]*num_att_gaussians, axis=2)
       # Using notation from the paper:
       # attention_gaussian_params[:,:,0] = alpha
@@ -119,7 +122,7 @@ class AttentionMDN(object):
         # for the actual windowed weight.
         attention_gaussian_params_tiled = tf.tile(attention_gaussian_params[i], [1, 1, num_chars])
         [alpha, beta, kappa] = tf.split(attention_gaussian_params_tiled, [num_chars,]*3, axis=2)
-        index_vals = tf.range(tf.cast(num_chars, tf.float32), dtype=dtype) # Integer values of 'u' in phi
+        index_vals = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
         exponent = -1*beta*(tf.square(kappa - index_vals)) # Broadcasting works without changing shape of index_vals
         gauss = alpha*tf.exp(exponent)
         window_weights += gauss

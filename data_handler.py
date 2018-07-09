@@ -124,23 +124,24 @@ class data_handler(object):
       num_chars_per_point = num_chars_in_line/num_points_in_line
       start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
       char_offset = int(start_index*num_chars_per_point)
-      print("----------------------")
-      print("num_points_in_line:", num_points_in_line)
-      print("num_chars_in_line:", num_chars_in_line)
-      print("num_chars_per_point:", num_chars_per_point)
+      #print("----------------------")
+      #print("num_points_in_line:", num_points_in_line)
+      #print("num_chars_in_line:", num_chars_in_line)
+      #print("num_chars_per_point:", num_chars_per_point)
       num_chars = int(sequence_length*num_chars_per_point)
-      print("num_chars:", num_chars)
+      #print("num_chars:", num_chars)
       batch_in.append(data[i][1][start_index:sequence_length + start_index, :])
       batch_out.append(data[i][1][start_index + 1:sequence_length + start_index + 1, :])
       ascii_data = data[i][0][char_offset:char_offset + num_chars]
-      print("complete ascii data:", data[i][0])
-      print("truncated ascii data:", ascii_data)
+      #print("complete ascii data:", data[i][0])
+      #print("truncated ascii data:", ascii_data)
       batch_ascii.append(ascii_data.lstrip().rstrip()) # Remove leading and trailing spaces.
 
     for i in range(len(batch_ascii)):
+      temp_ascii = batch_ascii[i]
       if len(batch_ascii[i]) < max_num_chars:
-        batch_ascii[i] += '@'*(max_num_chars - len(batch_ascii[i]))
-      batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in batch_ascii[i]], axis=1).T) #ugly
+        temp_ascii += '@'*(max_num_chars - len(batch_ascii[i]))
+      batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in temp_ascii], axis=1).T) #ugly
 
     batch_in = np.stack(batch_in, axis=0)
     batch_out = np.stack(batch_out, axis=0)

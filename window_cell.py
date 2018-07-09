@@ -57,7 +57,10 @@ class WindowCell(RNNCell):
       print("windowcell inputs info:", inputs)
       [alphas, betas, kappas] = array_ops.split(inputs, [self._state_size,]*self.NUM_FREE_PARAMS, axis=1)
       kappa_hats = gen_math_ops.exp(kappas) + state
-      output = array_ops.concat([alphas, betas, kappa_hats], axis=1)
+      #alpha_hats = gen_math_ops.exp(alphas)
+      alpha_hats = nn_ops.softmax(alphas, axis=1)
+      beta_hats = gen_math_ops.exp(betas)
+      output = array_ops.concat([alpha_hats, beta_hats, kappa_hats], axis=1)
 
       return output, kappa_hats
 
