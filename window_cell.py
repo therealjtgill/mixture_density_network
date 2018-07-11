@@ -59,7 +59,7 @@ class WindowCell(RNNCell):
       kappa_hats = gen_math_ops.exp(kappas) + state
       #alpha_hats = gen_math_ops.exp(alphas)
       alpha_hats = nn_ops.softmax(alphas, axis=1)
-      beta_hats = gen_math_ops.exp(betas)
+      beta_hats = gen_math_ops.exp(betas - 15)
       output = array_ops.concat([alpha_hats, beta_hats, kappa_hats], axis=1)
 
       return output, kappa_hats

@@ -122,7 +122,8 @@ class data_handler(object):
       if num_chars_in_line > max_num_chars:
         max_num_chars = num_chars_in_line
       num_chars_per_point = num_chars_in_line/num_points_in_line
-      start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
+      #start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
+      start_index = 0
       char_offset = int(start_index*num_chars_per_point)
       #print("----------------------")
       #print("num_points_in_line:", num_points_in_line)
