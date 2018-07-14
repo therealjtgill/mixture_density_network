@@ -58,8 +58,8 @@ class AttentionMDN(object):
       # Initial states for recurrent parts of the network
       self.zero_states = []
       self.init_states = []
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, 3*num_att_gaussians])
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
       #self.init_states.append([ph_c, ph_h])
 
@@ -89,8 +89,8 @@ class AttentionMDN(object):
 
       # Attention Mechanism
       self.recurrent_states = []
-      lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(3*num_att_gaussians)
-      window = WindowCell(self.num_att_gaussians)
+      lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
+      window = WindowCell(lstm_cell_size, self.num_att_gaussians)
       first_rnn_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_1, window])
       attention_out, attention_state = \
         tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
@@ -114,6 +114,7 @@ class AttentionMDN(object):
         attention_regrouped.append(kappas[i])
       attention_regrouped_out = tf.concat(attention_regrouped, axis=2)
       attention_params = tf.split(attention_regrouped_out, [3,]*num_att_gaussians, axis=2)
+      self.attention_params = attention_regrouped_out
       # attention_gaussian_params[:,:,0] = alpha
       # attention_gaussian_params[:,:,1] = beta
       # attention_gaussian_params[:,:,2] = kappa
@@ -379,12 +380,15 @@ class AttentionMDN(object):
       self.mix_weights_,
       self.stroke,
       self.gauss_params,
-      self.alphabet_weights
+      self.alphabet_weights,
+      self.attention_params
     ]
 
-    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw = self.session.run(fetches, feed_dict=feeds)
+    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw, atp = self.session.run(fetches, feed_dict=feeds)
     print("shape of means:", means_.shape)
     print("shape of stdevs:", stdevs_.shape)
+    print("attention_params for first batch:", atp[0, :, :])
+    print("atp shape:", atp.shape)
     correls = params[2]
     max_correl = 0
     for i in range(self.num_mix_gaussians):

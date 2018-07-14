@@ -176,7 +176,7 @@ if __name__ == "__main__":
   data_dir = args.data_dir
   num_mix_components = args.num_mix_components
   num_layers = args.num_layers
-  num_att_components = 20
+  num_att_components = 10
   input_size = 3
 
   if not os.path.exists(data_dir):
