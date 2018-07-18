@@ -170,13 +170,18 @@ if __name__ == "__main__":
                       data that will be presented to the network, NOT the number of epochs.")
   parser.add_argument("--selfcycles", action="store", dest="num_cycles", type=int, default=400,
                       help="Have the network generate its own data points for this number of timesteps.")
+  parser.add_argument("--numattcomps", action="store", dest="num_att_components", type=int, default=7,
+                      help="Number of attention gaussians for convolution with one-hot ASCII text.")
+  parser.add_argument("--checkpointfile", action="store", dest="checkpoint_file", type=str, default=None,
+                      help="Location of a checkpoint file to be loaded (for additional training or running).")
 
   args = parser.parse_args()
 
   data_dir = args.data_dir
   num_mix_components = args.num_mix_components
   num_layers = args.num_layers
-  num_att_components = 10
+  num_att_components = args.num_att_components
+  checkpoint_file = args.checkpoint_file
   input_size = 3
 
   if not os.path.exists(data_dir):
@@ -192,9 +197,16 @@ if __name__ == "__main__":
     print("Using the full dataset.")
     dh = dh.data_handler(data_file, [.7, .15, .15])
 
+  tf.reset_default_graph()
+
   session = tf.Session()
   mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True)
-  session.run(tf.global_variables_initializer())
+  if checkpoint_file == None:
+    session.run(tf.global_variables_initializer())
+  else:
+    #session.run(tf.global_variables_initializer())
+    print("Loading checkpoint file")
+    mdn_model.load_params(checkpoint_file)
   save = tf.train.Saver()
 
   save_dir = os.path.expanduser("~/documents/mdn_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-")
@@ -222,7 +234,7 @@ if __name__ == "__main__":
       save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", title=train["ascii"][0], offset=i)
 
     if i % 500 == 0:
-      mdn_model.save_params(os.path.join(save_dir, "mdn_model"), i)
+      mdn_model.save_params(os.path.join(save_dir, "mdn_model.ckpt"))
 
     #mdn_model.validate_batch(fake_train_in, fake_train_out)
 

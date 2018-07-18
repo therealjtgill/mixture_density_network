@@ -584,12 +584,13 @@ class AttentionMDN(object):
     return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1)) # Getting shapes with three items: (1, sl, 2)
 
 
-  def save_params(self, location, global_step):
+  def save_params(self, location):
     '''
     Simple call to save all of the parameters in the model.
     '''
 
-    self.saver.save(self.session, location, global_step=global_step)
+    #self.saver.save(self.session, location, global_step=global_step)
+    self.saver.save(self.session, location)
 
 
   def load_params(self, checkpoint_file):
@@ -600,14 +601,15 @@ class AttentionMDN(object):
     already know what the model architecture is.
     '''
 
-    if not os.path.isfile(checkpoint_file):
-      print("The checkpoint file", checkpoint_file, "could not be found.")
-      return
+    #if not os.path.isfile(checkpoint_file):
+    #  print("The checkpoint file", checkpoint_file, "could not be found.")
+    #  return
 
-    print("Loading checkpoing file", checkpoint_file, "into the MDN model.")
-    self.saver = tf.train.restore(self.session, checkpoint_file)
+    print("Loading checkpoint file", checkpoint_file, "into the MDN model.")
+    #self.saver = tf.train.restore(self.session, checkpoint_file)
+    self.saver.restore(self.session, checkpoint_file)
 
 
 if __name__ == "__main__":
   
-  print("This is just the script that contains the MDN class! Go away.")
+  print("This is just the script that contains the MDN class. Go away!")
