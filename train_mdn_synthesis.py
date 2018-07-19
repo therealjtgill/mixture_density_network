@@ -116,17 +116,20 @@ def save_dots(dots, strokes, save_dir, offset=0):
   plt.close()
 
 
-def save_attention_weights(att, save_dir, offset=0, suffix="", title=""):
+def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", title=""):
 
   num_chars, alphabet_size = att.shape
   print("attention weights shape:", att.shape)
   np.savetxt(os.path.join(save_dir, "attention_weights" + suffix + str(i) + ".dat"), np.squeeze(att))
   plt.figure()
   plt.title(title)
+  if not ylabels == None:
+    plt.yticks(range(att.shape[0]), ylabels, fontsize=6)
+    plt.rcParams['ytick.labelsize'] = 12
   plt.xlabel("sequence position")
   plt.ylabel("alphabet index")
-  plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", vmin=0.0, vmax=1.0)
-  plt.savefig(os.path.join(save_dir, "attention_weights" + str(i) + ".png"))
+  plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", aspect=8)
+  plt.savefig(os.path.join(save_dir, "attention_weights" + str(i) + ".png"), dpi=600)
   plt.close()
   np.savetxt(os.path.join(save_dir, "attention_weights" + str(i) + ".dat"), np.squeeze(att))
 
@@ -231,7 +234,7 @@ if __name__ == "__main__":
       #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
       save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i, title=train["ascii"][0])
       save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=train["ascii"][0])
-      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", title=train["ascii"][0], offset=i)
+      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=train["ascii"][0], offset=i)
 
     if i % 500 == 0:
       mdn_model.save_params(os.path.join(save_dir, "mdn_model.ckpt"))

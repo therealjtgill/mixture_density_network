@@ -115,21 +115,21 @@ class AttentionMDN(object):
       attention_regrouped_out = tf.concat(attention_regrouped, axis=2)
       attention_params = tf.split(attention_regrouped_out, [3,]*num_att_gaussians, axis=2)
       self.attention_params = attention_regrouped_out
-      # attention_gaussian_params[:,:,0] = alpha
-      # attention_gaussian_params[:,:,1] = beta
-      # attention_gaussian_params[:,:,2] = kappa
+      # attention_params[:,:,0] = alpha
+      # attention_params[:,:,1] = beta
+      # attention_params[:,:,2] = kappa
 
+      # Need to evaluate each gaussian at an index value corresponding to a
+      # character position in the ASCII input (axis=1).
+      # Tile the parameters on the last axis by the number of characters in
+      # the ascii sequence to ensure proper broadcasting. Need to get a
+      # tensor with shape
+      #   [bs, sl, nc] (nc = num_chars)
+      # for phi, and a tensor with shape
+      #   [bs, sl, as] (as = alphabet_size)
+      # for the actual windowed weight.
       window_weights = 0
       for i in range(num_att_gaussians):
-        # Need to evaluate each gaussian at an index value corresponding to a
-        # character position in the ASCII input (axis=1).
-        # Tile the parameters on the last axis by the number of characters in
-        # the ascii sequence to ensure proper broadcasting. Need to get a
-        # tensor with shape
-        #   [bs, sl, nc] (nc = num_chars)
-        # for phi, and a tensor with shape
-        #   [bs, sl, as] (as = alphabet_size)
-        # for the actual windowed weight.
         attention_params_tiled = tf.tile(attention_params[i], [1, 1, num_chars])
         [alpha, beta, kappa] = tf.split(attention_params_tiled, [num_chars,]*3, axis=2)
         index_vals = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
@@ -147,12 +147,21 @@ class AttentionMDN(object):
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
       lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="b")
       self.layers.append(lstm_2)
-      self.layers.append(lstm_3)
+      #self.layers.append(lstm_3)
 
-      last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
+      #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
+      #outputs, outputs_state = \
+      #  tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
+      #                    initial_state=self.init_states[2:])
+      #outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
+      #self.recurrent_states.append(outputs_state)
+      #self.layers.append(outputs_flat)
+      #self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
+      #self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
+      last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
-                          initial_state=self.init_states[2:])
+                          initial_state=self.init_states[2:3])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
@@ -169,7 +178,7 @@ class AttentionMDN(object):
       self.means = pieces[0]
       self.stdevs = tf.nn.softplus(pieces[1])
       self.correls = tf.nn.tanh(pieces[2])
-      self.mix_weights = tf.nn.softmax(pieces[3])
+      self.mix_weights = tf.nn.softmax(pieces[3] - 10)
       self.stroke = tf.nn.sigmoid(pieces[4])
 
       # Reshape the means, stdevs, correlations, and mixture weights for
@@ -387,7 +396,7 @@ class AttentionMDN(object):
     _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw, atp = self.session.run(fetches, feed_dict=feeds)
     print("shape of means:", means_.shape)
     print("shape of stdevs:", stdevs_.shape)
-    print("attention_params for first batch:", atp[0, :, :])
+    #print("attention_params for first batch:", atp[0, :, :])
     print("atp shape:", atp.shape)
     correls = params[2]
     max_correl = 0
@@ -396,6 +405,9 @@ class AttentionMDN(object):
     print("max_correl denom:", max_correl)
     if max_correl > 1:
       print("OUT OF BOUNDS VALUE FOR MAX_CORREL")
+      sys.exit(-1)
+    if loss == np.nan:
+      print("LOSS IS NAN!")
       sys.exit(-1)
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw)
 
