@@ -63,10 +63,10 @@ class WindowCell(RNNCell):
       resized_output = tf.matmul(inputs, self.weight) + self.bias
       print("windowcell inputs info:", inputs)
       [alphas, betas, kappas] = array_ops.split(resized_output, [self._state_size,]*self.NUM_FREE_PARAMS, axis=1)
-      kappa_hats = gen_math_ops.exp(kappas - 5) + state
-      alpha_hats = gen_math_ops.exp(alphas - 5)
+      kappa_hats = gen_math_ops.exp(kappas) + state
+      alpha_hats = gen_math_ops.exp(alphas)
       #alpha_hats = nn_ops.softmax(alphas, axis=1)
-      beta_hats = gen_math_ops.exp(betas - 5)
+      beta_hats = gen_math_ops.exp(betas)
       output = array_ops.concat([alpha_hats, beta_hats, kappa_hats], axis=1)
 
       return output, kappa_hats

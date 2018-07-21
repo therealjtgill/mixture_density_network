@@ -2,6 +2,7 @@ from mdn_synthesis import AttentionMDN
 from utils import gaussian_mixture_contour
 
 import argparse
+import copy
 import datetime
 import os
 import scipy.misc
@@ -46,8 +47,11 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0, tit
 
   sequence_length, num_gaussians, _ = weights.shape
   print("stroke shape:", stroke.shape)
+  print("means shape:", means.shape)
+  print("input_ shape:", input_.shape)
   breaks = np.where(stroke > 0.8)[0]
-  breaks_ = np.where(input_[:,2] == 1)[0]
+  breaks_ = np.where(input_[:,2] > 0.8)[0]
+  print("breaks:", breaks_)
   map_preds = []
   for i in range(sequence_length):
     pred = 0
@@ -62,8 +66,8 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0, tit
 
   plt.figure()
   plt.title(title)
-  #plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
-  #plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
+  plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
+  plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
   if len(breaks_) > 0:
     for i in range(1, len(breaks_)):
       plt.plot(input_[breaks_[i-1]+1:breaks_[i],0], -input_[breaks_[i-1]+1:breaks_[i],1], color="r")
@@ -116,7 +120,7 @@ def save_dots(dots, strokes, save_dir, offset=0):
   plt.close()
 
 
-def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", title=""):
+def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", title="", filename="attention_weights"):
 
   num_chars, alphabet_size = att.shape
   print("attention weights shape:", att.shape)
@@ -129,9 +133,9 @@ def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", tit
   plt.xlabel("sequence position")
   plt.ylabel("alphabet index")
   plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", aspect=8)
-  plt.savefig(os.path.join(save_dir, "attention_weights" + str(i) + ".png"), dpi=600)
+  plt.savefig(os.path.join(save_dir, filename + str(i) + ".png"), dpi=600)
   plt.close()
-  np.savetxt(os.path.join(save_dir, "attention_weights" + str(i) + ".dat"), np.squeeze(att))
+  np.savetxt(os.path.join(save_dir, filename + str(i) + ".dat"), np.squeeze(att))
 
 
 def save_mixture_weights(weights, save_dir, offset=0, suffix="", title=""):
@@ -218,23 +222,26 @@ if __name__ == "__main__":
 
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
+  test_vals = dh.get_test_batch(2, 300)
   for i in range(args.num_iterations):
+    print("\niteration number: ", i)
     start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
     # loss, means, stdevs, mix
     things = mdn_model.train_batch(train["X"], train["onehot"], train["y"])
-    print("mixture evaluation max: ", np.amax(things[-1]), "min: ", np.amin(things[-1]))
-    print("individual gaussian evaluations max: ", np.amax(things[-2]), "min: ", np.amin(things[-2]))
+    #print("mixture evaluation max: ", np.amax(things[-1]), "min: ", np.amin(things[-1]))
+    #print("individual gaussian evaluations max: ", np.amax(things[-2]), "min: ", np.amin(things[-2]))
     if i % 100 == 0:
       print("  saving images", i)
-      #validate = dh.get_validation_batch(1, 10)
-      #save_dots(dots, strokes, save_dir, i)
-      #dots, strokes = mdn_model.run_cyclically(validate["X"], 400)
-      #valid = mdn_model.validate_batch(validate["X"], validate["y"])
-      #save_prediction_heatmap(things[1][0,:,:,:], things[2][0,:,:,:], things[3][0,:,:], train["y"][0,:,:], save_dir, i)
-      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i, title=train["ascii"][0])
-      save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=train["ascii"][0])
-      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=train["ascii"][0], offset=i)
+      temp_test_vals = copy.deepcopy(test_vals)
+      things = mdn_model.validate_batch(temp_test_vals["X"], temp_test_vals["onehot"], temp_test_vals["y"])
+      save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], temp_test_vals["y"][0,:,:], save_dir, i, title=temp_test_vals["ascii"][0])
+      save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=temp_test_vals["ascii"][0])
+      save_attention_weights(things[-2][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=temp_test_vals["ascii"][0], offset=i)
+      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=[c for c in test_vals["ascii"][0]], title=temp_test_vals["ascii"][0], offset=i, filename="phi")
+      #save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i, title=train["ascii"][0])
+      #save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=train["ascii"][0])
+      #save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=train["ascii"][0], offset=i)
 
     if i % 500 == 0:
       mdn_model.save_params(os.path.join(save_dir, "mdn_model.ckpt"))

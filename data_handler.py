@@ -46,7 +46,7 @@ class data_handler(object):
     for i in range(self.num_lines):
       ascii_data = self.data_all[i][0]
       num_pad_spaces = self.max_ascii_length - len(ascii_data) + 1
-      print(ascii_data)
+      #print(ascii_data)
       self.data_all[i][0] = ascii_data + " "*num_pad_spaces
 
     print("Loading finished.")
@@ -62,13 +62,13 @@ class data_handler(object):
     self.data_train = self.data_all[:num_train]
     self.data_test = self.data_all[num_train:num_train + num_test]
     self.data_validate = self.data_all[num_train + num_test:]
-    print("data sample: ", self.data_all[0][0])
+    #print("data sample: ", self.data_all[0][0])
     self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
     self.one_hot_alphabet_dict = {char:np.eye(len(self.alphabet), dtype=np.float32)[i] for i, char in enumerate(self.alphabet)}
     # "@" denotes an end of sequence; used to pad ascii one-hots.
-    self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
+    #self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
     print("alphabet: ", self.alphabet)
-    print("one hot alphabet: ", self.one_hot_alphabet_dict)
+    #print("one hot alphabet: ", self.one_hot_alphabet_dict)
     #print("alphabet size: ", len(self.alphabet))
     print("Splitting finished.")
 
@@ -104,7 +104,7 @@ class data_handler(object):
     low = 0
     high = len(data)
     line_indices = np.random.randint(low, high, batch_size)
-    print("batches pulled from following line indices:", line_indices)
+    #print("batches pulled from following line indices:", line_indices)
     batch_in = []
     batch_out = []
     batch_ascii = []
@@ -141,14 +141,14 @@ class data_handler(object):
     for i in range(len(batch_ascii)):
       temp_ascii = batch_ascii[i]
       if len(batch_ascii[i]) < max_num_chars:
-        temp_ascii += '@'*(max_num_chars - len(batch_ascii[i]))
+        temp_ascii += ' '*(max_num_chars - len(batch_ascii[i]))
       batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in temp_ascii], axis=1).T) #ugly
 
     batch_in = np.stack(batch_in, axis=0)
     batch_out = np.stack(batch_out, axis=0)
     batch_ascii_one_hot = np.stack(batch_ascii_one_hot, axis=0)
-    print(batch_in.shape)
-    print(batch_out.shape)
+    #print(batch_in.shape)
+    #print(batch_out.shape)
     batch_set = {"X":batch_in, "y":batch_out, "ascii":batch_ascii, "onehot": batch_ascii_one_hot}
 
     return batch_set
@@ -178,3 +178,4 @@ if __name__ == "__main__":
   dh.get_train_batch(64, 300)
   dh.get_test_batch(63, 299)
   dh.get_validation_batch(62, 298)
+  print("Num training lines:", len(dh.data_train))

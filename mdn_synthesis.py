@@ -114,10 +114,6 @@ class AttentionMDN(object):
         attention_regrouped.append(kappas[i])
       attention_regrouped_out = tf.concat(attention_regrouped, axis=2)
       attention_params = tf.split(attention_regrouped_out, [3,]*num_att_gaussians, axis=2)
-      self.attention_params = attention_regrouped_out
-      # attention_params[:,:,0] = alpha
-      # attention_params[:,:,1] = beta
-      # attention_params[:,:,2] = kappa
 
       # Need to evaluate each gaussian at an index value corresponding to a
       # character position in the ASCII input (axis=1).
@@ -128,24 +124,25 @@ class AttentionMDN(object):
       # for phi, and a tensor with shape
       #   [bs, sl, as] (as = alphabet_size)
       # for the actual windowed weight.
-      window_weights = 0
+      self.phi = 0
+      u = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
       for i in range(num_att_gaussians):
-        attention_params_tiled = tf.tile(attention_params[i], [1, 1, num_chars])
-        [alpha, beta, kappa] = tf.split(attention_params_tiled, [num_chars,]*3, axis=2)
-        index_vals = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
-        exponent = -1*beta*(tf.square(kappa - index_vals)) # Broadcasting works without changing shape of index_vals
-        gauss = alpha*tf.exp(exponent)
-        window_weights += gauss
-      # shape(window_weights) = [bs, sl, nc]
+        [a, b, k] = tf.split(attention_params[i], [1,]*3, axis=2)
+        alpha = tf.tile(a, [1, 1, num_chars])
+        beta = tf.tile(b, [1, 1, num_chars])
+        kappa = tf.tile(k, [1, 1, num_chars])
+        z = -1*beta*(tf.square(kappa - u)) # Broadcasting works without changing shape of 'u'
+        self.phi += alpha*tf.exp(z)
+      # shape(phi) = [bs, sl, nc]
       # shape(ascii_input) = [bs, nc, as]
       # TF matmul supports matrix multiplication of tensors with rank >= 2.
       # shape(self.alphabet_weights) = [bs, sl, as]
-      self.alphabet_weights = tf.matmul(window_weights, self.input_ascii)
+      self.alphabet_weights = tf.matmul(self.phi, self.input_ascii)
       self.layers.append(self.alphabet_weights)
 
       # Final Recurrent Layers
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
-      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="b")
+      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="unused")
       self.layers.append(lstm_2)
       #self.layers.append(lstm_3)
 
@@ -178,7 +175,7 @@ class AttentionMDN(object):
       self.means = pieces[0]
       self.stdevs = tf.nn.softplus(pieces[1])
       self.correls = tf.nn.tanh(pieces[2])
-      self.mix_weights = tf.nn.softmax(pieces[3] - 10)
+      self.mix_weights = tf.nn.softmax(pieces[3])
       self.stroke = tf.nn.sigmoid(pieces[4])
 
       # Reshape the means, stdevs, correlations, and mixture weights for
@@ -390,26 +387,26 @@ class AttentionMDN(object):
       self.stroke,
       self.gauss_params,
       self.alphabet_weights,
-      self.attention_params
+      self.phi
     ]
 
-    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw, atp = self.session.run(fetches, feed_dict=feeds)
-    print("shape of means:", means_.shape)
-    print("shape of stdevs:", stdevs_.shape)
+    _, loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw, phi = self.session.run(fetches, feed_dict=feeds)
+    #print("shape of means:", means_.shape)
+    #print("shape of stdevs:", stdevs_.shape)
     #print("attention_params for first batch:", atp[0, :, :])
-    print("atp shape:", atp.shape)
+    #print("atp shape:", atp.shape)
     correls = params[2]
     max_correl = 0
     for i in range(self.num_mix_gaussians):
       max_correl = max(max_correl, np.amax(np.sum((correls[i]*correls[i]), axis=1)))
-    print("max_correl denom:", max_correl)
+    #print("max_correl denom:", max_correl)
     if max_correl > 1:
       print("OUT OF BOUNDS VALUE FOR MAX_CORREL")
       sys.exit(-1)
     if loss == np.nan:
-      print("LOSS IS NAN!")
+      print("LOSS IS NAN. ABORTING.")
       sys.exit(-1)
-    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw)
+    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)
 
 
   def validate_batch(self, batch_in, batch_one_hots, batch_out):
@@ -444,13 +441,19 @@ class AttentionMDN(object):
 
     fetches = [
       self.loss,
+      self.gauss_evals,
+      self.mixture,
       self.means_,
       self.stdevs_,
-      self._mix_weights
+      self.mix_weights_,
+      self.stroke,
+      self.gauss_params,
+      self.alphabet_weights,
+      self.phi
     ]
 
-    loss, means_, stdevs_, mix = self.session.run(fetches, feed_dict=feeds)
-    return (loss, means_, stdevs_, mix)
+    loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw, phi  = self.session.run(fetches, feed_dict=feeds)
+    return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)
 
 
   def _run_once(self, input_, stroke_, initial_states):
