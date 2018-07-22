@@ -33,8 +33,6 @@ class data_handler(object):
     self.max_sequence_length = max([d[1].shape[0] for d in self.data_all])
     self.max_ascii_length = max([len(d[0]) for d in self.data_all])
 
-    print(type(self.data_all[0]))
-
     self.num_lines = len(self.data_all)
     if self.num_lines < 100:
       print("Not enough data! Only found 100 lines of data.")
@@ -66,7 +64,8 @@ class data_handler(object):
     self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
     self.one_hot_alphabet_dict = {char:np.eye(len(self.alphabet), dtype=np.float32)[i] for i, char in enumerate(self.alphabet)}
     # "@" denotes an end of sequence; used to pad ascii one-hots.
-    #self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
+    self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
+    #self.alphabet.append('@')
     print("alphabet: ", self.alphabet)
     #print("one hot alphabet: ", self.one_hot_alphabet_dict)
     #print("alphabet size: ", len(self.alphabet))
@@ -141,7 +140,7 @@ class data_handler(object):
     for i in range(len(batch_ascii)):
       temp_ascii = batch_ascii[i]
       if len(batch_ascii[i]) < max_num_chars:
-        temp_ascii += ' '*(max_num_chars - len(batch_ascii[i]))
+        temp_ascii += '@'*(max_num_chars - len(batch_ascii[i]))
       batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in temp_ascii], axis=1).T) #ugly
 
     batch_in = np.stack(batch_in, axis=0)

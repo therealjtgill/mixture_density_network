@@ -21,6 +21,9 @@ class AttentionMDN(object):
     model uses full covariance matrices for the mixture components.
     '''
 
+    # TODO @therealjtgill - Need to add the multicell dynamic rnn states to a
+    # class member variable for the run_once and run_cyclically methods.
+
     dtype = tf.float32
     self.session = session
     self.weights = []
@@ -71,10 +74,6 @@ class AttentionMDN(object):
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
       #self.init_states.append([ph_c, ph_h])
 
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
-      #self.init_states.append([ph_c, ph_h])
       self.init_states = tuple(self.init_states)
       # End initial states
 
@@ -90,9 +89,12 @@ class AttentionMDN(object):
       # Attention Mechanism
       self.recurrent_states = []
       lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
-      window = WindowCell(lstm_cell_size, self.num_att_gaussians)
+      window = WindowCell(lstm_cell_size, num_chars, self.num_att_gaussians)
       first_rnn_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_1, window])
-      attention_out, attention_state = \
+      #attention_out, attention_state = \
+      #  tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
+      #    initial_state=self.init_states[0:2])
+      self.phi, attention_state = \
         tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
           initial_state=self.init_states[0:2])
       # Get back num_att_gaussians tensors of shape [bs, sl, 3], which is a
@@ -100,39 +102,39 @@ class AttentionMDN(object):
       # size(attention_params) = [num_att_gaussians, bs, sl, 3]
       #   (technically a list of size 'num_att_gaussians' with [bs, sl, 3] size 
       #   tensors at each element of the list)
-      self.layers.append(attention_out)
+      #self.layers.append(attention_out)
+      self.layers.append(self.phi)
       self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
       self.zero_states.append(window.zero_state(batch_size, dtype=dtype))
-      attention_pieces = tf.split(attention_out, [num_att_gaussians,]*3, axis=2)
-      alphas = tf.split(attention_pieces[0], [1,]*num_att_gaussians, axis=2)
-      betas = tf.split(attention_pieces[1], [1,]*num_att_gaussians, axis=2)
-      kappas = tf.split(attention_pieces[2], [1,]*num_att_gaussians, axis=2)
-      attention_regrouped = []
-      for i in range(num_att_gaussians):
-        attention_regrouped.append(alphas[i])
-        attention_regrouped.append(betas[i])
-        attention_regrouped.append(kappas[i])
-      attention_regrouped_out = tf.concat(attention_regrouped, axis=2)
-      attention_params = tf.split(attention_regrouped_out, [3,]*num_att_gaussians, axis=2)
+      #attention_pieces = tf.split(attention_out, [num_att_gaussians,]*3, axis=2)
+      #alphas = tf.split(attention_pieces[0], [1,]*num_att_gaussians, axis=2)
+      #betas = tf.split(attention_pieces[1], [1,]*num_att_gaussians, axis=2)
+      #kappas = tf.split(attention_pieces[2], [1,]*num_att_gaussians, axis=2)
+      #attention_regrouped = []
+      #for i in range(num_att_gaussians):
+      #  attention_regrouped.append(alphas[i])
+      #  attention_regrouped.append(betas[i])
+      #  attention_regrouped.append(kappas[i])
+      #attention_regrouped_out = tf.concat(attention_regrouped, axis=2)
+      #attention_params = tf.split(attention_regrouped_out, [3,]*num_att_gaussians, axis=2)
 
       # Need to evaluate each gaussian at an index value corresponding to a
       # character position in the ASCII input (axis=1).
       # Tile the parameters on the last axis by the number of characters in
       # the ascii sequence to ensure proper broadcasting. Need to get a
-      # tensor with shape
+      # tensor with the following shape for phi
       #   [bs, sl, nc] (nc = num_chars)
-      # for phi, and a tensor with shape
+      # and a tensor with the following shape for the soft window weight.
       #   [bs, sl, as] (as = alphabet_size)
-      # for the actual windowed weight.
-      self.phi = 0
-      u = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
-      for i in range(num_att_gaussians):
-        [a, b, k] = tf.split(attention_params[i], [1,]*3, axis=2)
-        alpha = tf.tile(a, [1, 1, num_chars])
-        beta = tf.tile(b, [1, 1, num_chars])
-        kappa = tf.tile(k, [1, 1, num_chars])
-        z = -1*beta*(tf.square(kappa - u)) # Broadcasting works without changing shape of 'u'
-        self.phi += alpha*tf.exp(z)
+      #self.phi = 0
+      #u = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
+      #for i in range(num_att_gaussians):
+      #  [a, b, k] = tf.split(attention_params[i], [1,]*3, axis=2)
+      #  alpha = tf.tile(a, [1, 1, num_chars])
+      #  beta = tf.tile(b, [1, 1, num_chars])
+      #  kappa = tf.tile(k, [1, 1, num_chars])
+      #  z = -1*beta*(tf.square(kappa - u)) # Broadcasting works without changing shape of 'u'
+      #  self.phi += alpha*tf.exp(z)
       # shape(phi) = [bs, sl, nc]
       # shape(ascii_input) = [bs, nc, as]
       # TF matmul supports matrix multiplication of tensors with rank >= 2.
@@ -142,19 +144,8 @@ class AttentionMDN(object):
 
       # Final Recurrent Layers
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
-      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="unused")
       self.layers.append(lstm_2)
-      #self.layers.append(lstm_3)
 
-      #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
-      #outputs, outputs_state = \
-      #  tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
-      #                    initial_state=self.init_states[2:])
-      #outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
-      #self.recurrent_states.append(outputs_state)
-      #self.layers.append(outputs_flat)
-      #self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
-      #self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
       last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
@@ -163,7 +154,6 @@ class AttentionMDN(object):
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
       self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
-      self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
 
       # Output layer
       shape = [lstm_cell_size, output_size]
@@ -373,8 +363,6 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = zero_states[1]
     feeds[self.init_states[2][0]] = zero_states[2][0]
     feeds[self.init_states[2][1]] = zero_states[2][1]
-    feeds[self.init_states[3][0]] = zero_states[3][0]
-    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.train_op,
@@ -436,8 +424,6 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = zero_states[1]
     feeds[self.init_states[2][0]] = zero_states[2][0]
     feeds[self.init_states[2][1]] = zero_states[2][1]
-    feeds[self.init_states[3][0]] = zero_states[3][0]
-    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.loss,
@@ -485,8 +471,6 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = initial_states[1]
     feeds[self.init_states[2][0]] = initial_states[2][0]
     feeds[self.init_states[2][1]] = initial_states[2][1]
-    feeds[self.init_states[3][0]] = initial_states[3][0]
-    feeds[self.init_states[3][1]] = initial_states[3][1]
 
     fetches = [
       self.mix_weights,
@@ -549,8 +533,6 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = zero_states[1]
     feeds[self.init_states[2][0]] = zero_states[2][0]
     feeds[self.init_states[2][1]] = zero_states[2][1]
-    feeds[self.init_states[3][0]] = zero_states[3][0]
-    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.mix_weights,

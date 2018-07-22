@@ -17,7 +17,7 @@ from tensorflow.python.ops.rnn_cell_impl import RNNCell as RNNCell
 
 class WindowCell(RNNCell):
 
-  def __init__(self, input_size, num_windows=3):
+  def __init__(self, input_size, num_chars, num_windows=3):
     '''
     Initialize things.
     '''
@@ -27,6 +27,7 @@ class WindowCell(RNNCell):
     self._state_size = num_windows
     self._output_size = self.NUM_FREE_PARAMS*num_windows
     self.num_windows = num_windows
+    self.num_chars = num_chars
     self.weight = variables.Variable(random_ops.random_normal(shape=(self._input_size, self._output_size), stddev=0.1), dtype=tf.float32)
     self.bias = variables.Variable(random_ops.random_normal(shape=(self._output_size,), stddev=0.1), dtype=tf.float32)
 
@@ -43,11 +44,11 @@ class WindowCell(RNNCell):
   @property
   def output_size(self):
     '''
-    The output size contains 'alpha', 'beta', and 'kappa' values for each
-    component in the window cell.
+    The output has the same size as phi at the given timestep, which means that
+    phi is self.num_chars long.
     '''
 
-    return self._output_size
+    return self.num_chars
 
   def __call__(self, inputs, state, scope=None):
     '''
@@ -59,17 +60,32 @@ class WindowCell(RNNCell):
     returns the RNN-ified parameters of the window cell.
     '''
 
+    dtype = tf.float32
+
     with vs.variable_scope(scope or 'window_cell'):
-      resized_output = tf.matmul(inputs, self.weight) + self.bias
-      print("windowcell inputs info:", inputs)
-      [alphas, betas, kappas] = array_ops.split(resized_output, [self._state_size,]*self.NUM_FREE_PARAMS, axis=1)
+      resized_input = tf.matmul(inputs, self.weight) + self.bias
+      #print("windowcell inputs info:", inputs)
+      [alphas, betas, kappas] = array_ops.split(resized_input, [self._state_size,]*self.NUM_FREE_PARAMS, axis=1)
       kappa_hats = gen_math_ops.exp(kappas) + state
       alpha_hats = gen_math_ops.exp(alphas)
       #alpha_hats = nn_ops.softmax(alphas, axis=1)
       beta_hats = gen_math_ops.exp(betas)
-      output = array_ops.concat([alpha_hats, beta_hats, kappa_hats], axis=1)
+      #output = array_ops.concat([alpha_hats, beta_hats, kappa_hats], axis=1)
+      u = tf.range(tf.cast(self.num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
 
-      return output, kappa_hats
+      kappa_hat_list = tf.split(kappa_hats, [1,]*self.num_windows, axis=1)
+      beta_hat_list = tf.split(beta_hats, [1,]*self.num_windows, axis=1)
+      alpha_hat_list = tf.split(alpha_hats, [1,]*self.num_windows, axis=1)
+
+      phi = 0
+      for i in range(self.num_windows):
+        kappa_hat_tiled = tf.tile(kappa_hat_list[i], [1, self.num_chars])
+        beta_hat_tiled = tf.tile(beta_hat_list[i], [1, self.num_chars])
+        alpha_hat_tiled = tf.tile(alpha_hat_list[i], [1, self.num_chars])
+        z = -1*beta_hat_tiled*tf.square(kappa_hat_tiled - u)
+        phi += alpha_hat_tiled*tf.exp(z)
+      print("information about phi:", phi)
+      return phi, kappa_hats
 
 if __name__ == "__main__":
 
