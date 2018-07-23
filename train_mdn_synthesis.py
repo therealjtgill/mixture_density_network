@@ -244,7 +244,7 @@ if __name__ == "__main__":
       #save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=train["ascii"][0], offset=i)
 
     if i % 500 == 0:
-      mdn_model.save_params(os.path.join(save_dir, "mdn_model.ckpt"))
+      mdn_model.save_params(os.path.join(save_dir, "mdn_model_ckpt"), i)
 
     #mdn_model.validate_batch(fake_train_in, fake_train_out)
 

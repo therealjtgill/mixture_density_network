@@ -90,34 +90,29 @@ class AttentionMDN(object):
       self.recurrent_states = []
       lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
       window = WindowCell(lstm_cell_size, num_chars, self.num_att_gaussians)
-      first_rnn_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_1, window])
-      #attention_out, attention_state = \
+      self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
+      self.zero_states.append(window.zero_state(batch_size, dtype=dtype))
+      #first_rnn_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_1, window])
+      #self.phi, attention_state = \
       #  tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
       #    initial_state=self.init_states[0:2])
-      self.phi, attention_state = \
-        tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
-          initial_state=self.init_states[0:2])
+      #self.recurrent_states.append(attention_state)
       # Get back num_att_gaussians tensors of shape [bs, sl, 3], which is a
       # tensor of attention window parameters for each attention gaussian.
       # size(attention_params) = [num_att_gaussians, bs, sl, 3]
       #   (technically a list of size 'num_att_gaussians' with [bs, sl, 3] size 
       #   tensors at each element of the list)
-      #self.layers.append(attention_out)
-      self.layers.append(self.phi)
-      self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
-      self.zero_states.append(window.zero_state(batch_size, dtype=dtype))
-      #attention_pieces = tf.split(attention_out, [num_att_gaussians,]*3, axis=2)
-      #alphas = tf.split(attention_pieces[0], [1,]*num_att_gaussians, axis=2)
-      #betas = tf.split(attention_pieces[1], [1,]*num_att_gaussians, axis=2)
-      #kappas = tf.split(attention_pieces[2], [1,]*num_att_gaussians, axis=2)
-      #attention_regrouped = []
-      #for i in range(num_att_gaussians):
-      #  attention_regrouped.append(alphas[i])
-      #  attention_regrouped.append(betas[i])
-      #  attention_regrouped.append(kappas[i])
-      #attention_regrouped_out = tf.concat(attention_regrouped, axis=2)
-      #attention_params = tf.split(attention_regrouped_out, [3,]*num_att_gaussians, axis=2)
+      #self.layers.append(self.phi)
 
+      lstm_1_out, lstm_1_state = tf.nn.dynamic_rnn(lstm_1, self.input_data, dtype=dtype,
+        initial_state=self.init_states[0])
+      self.layers.append(lstm_1_out)
+      self.recurrent_states.append(lstm_1_state)
+
+      self.phi, attention_state = tf.nn.dynamic_rnn(window, lstm_1_out, dtype=dtype,
+        initial_state=self.init_states[1])
+      self.layers.append(self.phi)
+      self.recurrent_states.append(attention_state)
       # Need to evaluate each gaussian at an index value corresponding to a
       # character position in the ASCII input (axis=1).
       # Tile the parameters on the last axis by the number of characters in
@@ -126,29 +121,22 @@ class AttentionMDN(object):
       #   [bs, sl, nc] (nc = num_chars)
       # and a tensor with the following shape for the soft window weight.
       #   [bs, sl, as] (as = alphabet_size)
-      #self.phi = 0
-      #u = tf.range(tf.cast(num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
-      #for i in range(num_att_gaussians):
-      #  [a, b, k] = tf.split(attention_params[i], [1,]*3, axis=2)
-      #  alpha = tf.tile(a, [1, 1, num_chars])
-      #  beta = tf.tile(b, [1, 1, num_chars])
-      #  kappa = tf.tile(k, [1, 1, num_chars])
-      #  z = -1*beta*(tf.square(kappa - u)) # Broadcasting works without changing shape of 'u'
-      #  self.phi += alpha*tf.exp(z)
-      # shape(phi) = [bs, sl, nc]
+
+      # shape(self.phi) = [bs, sl, nc]
       # shape(ascii_input) = [bs, nc, as]
-      # TF matmul supports matrix multiplication of tensors with rank >= 2.
       # shape(self.alphabet_weights) = [bs, sl, as]
       self.alphabet_weights = tf.matmul(self.phi, self.input_ascii)
       self.layers.append(self.alphabet_weights)
+      # End attention mechanism
 
       # Final Recurrent Layers
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
-      self.layers.append(lstm_2)
+      #self.layers.append(lstm_2)
 
+      lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
       last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
       outputs, outputs_state = \
-        tf.nn.dynamic_rnn(last_lstm_cells, self.alphabet_weights, dtype=dtype,
+        tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
                           initial_state=self.init_states[2:3])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
@@ -581,13 +569,13 @@ class AttentionMDN(object):
     return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1)) # Getting shapes with three items: (1, sl, 2)
 
 
-  def save_params(self, location):
+  def save_params(self, location, global_step):
     '''
     Simple call to save all of the parameters in the model.
     '''
 
-    #self.saver.save(self.session, location, global_step=global_step)
-    self.saver.save(self.session, location)
+    self.saver.save(self.session, location, global_step=global_step)
+    #self.saver.save(self.session, location)
 
 
   def load_params(self, checkpoint_file):
