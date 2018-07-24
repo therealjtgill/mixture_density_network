@@ -141,7 +141,7 @@ class data_handler(object):
       temp_ascii = batch_ascii[i]
       if len(batch_ascii[i]) < max_num_chars:
         temp_ascii += '@'*(max_num_chars - len(batch_ascii[i]))
-      batch_ascii_one_hot.append(np.stack([self.one_hot_alphabet_dict[char.lower()] for char in temp_ascii], axis=1).T) #ugly
+      batch_ascii_one_hot.append(self.ascii_to_one_hot(temp_ascii))
 
     batch_in = np.stack(batch_in, axis=0)
     batch_out = np.stack(batch_out, axis=0)
@@ -151,6 +151,11 @@ class data_handler(object):
     batch_set = {"X":batch_in, "y":batch_out, "ascii":batch_ascii, "onehot": batch_ascii_one_hot}
 
     return batch_set
+
+
+  def ascii_to_one_hot(self, ascii_string):
+
+    return np.stack([self.one_hot_alphabet_dict[char.lower()] for char in ascii_string], axis=1).T #ugly
 
 
   def get_train_batch(self, batch_size, sequence_length):

@@ -139,6 +139,7 @@ class AttentionMDN(object):
         tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
                           initial_state=self.init_states[2:3])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
+      #self.recurrent_states.append([s for s in outputs_state])
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
       self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
@@ -430,7 +431,7 @@ class AttentionMDN(object):
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)
 
 
-  def _run_once(self, input_, stroke_, initial_states):
+  def _run_once(self, input_, stroke_, initial_states, ascii):
     '''
     Takes a single input, (e.g. batch_size = 1, sequence_length = 1), passes it
     to the MDN, grabs the mixture parameters and final recurrent state of the 
@@ -447,8 +448,11 @@ class AttentionMDN(object):
 
     # Concatenate stroke and (dx, dy) input to get (1, 1, 3) input tensor.
     feeds = {
-      self.input_data: np.concatenate([input_, stroke_], axis=-1)
+      self.input_data: np.concatenate([input_, stroke_], axis=-1),
+      self.input_ascii: ascii
     }
+
+    print("len initial states[2]:", len(initial_states[2])) 
 
     # Initialize recurrent states with the states from the previous timestep.
     #for i in range(self.num_lstm_layers):
@@ -457,14 +461,16 @@ class AttentionMDN(object):
     feeds[self.init_states[0][0]] = initial_states[0][0]
     feeds[self.init_states[0][1]] = initial_states[0][1]
     feeds[self.init_states[1]] = initial_states[1]
-    feeds[self.init_states[2][0]] = initial_states[2][0]
-    feeds[self.init_states[2][1]] = initial_states[2][1]
+    feeds[self.init_states[2][0]] = initial_states[2][0][0] # Ugly because of multirnncell
+    feeds[self.init_states[2][1]] = initial_states[2][0][1] # Ugly because of multirnncell
+    # The two lines above shouldn't have an extra [0] iterator, but it'll have to
+    # stay until you get rid of the multirnncell on the last LSTM layer.
 
     fetches = [
       self.mix_weights,
       self.gauss_params,
       self.stroke,
-      self.last_lstm_state
+      self.recurrent_states
     ]
     #print('input_ shape:', input_.shape)
 
@@ -488,7 +494,7 @@ class AttentionMDN(object):
     return (pos_sample, stroke_sample, state, squeezed_params, mix)
 
 
-  def run_cyclically(self, input_, num_steps):
+  def run_cyclically(self, input_, ascii, num_steps):
     '''
     Takes a seed value, passes it to the MDN, the mixture density is sampled,
     and the sample is fed into the input of the MDN at the next timestep.
@@ -508,10 +514,13 @@ class AttentionMDN(object):
     #zero_states = self.session.run(self.zero_states)
 
     feeds = {
-      self.input_data: input_
+      self.input_data: input_,
+      self.input_ascii: ascii
     }
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
+    print("len zero states:", len(zero_states))
+    print("len init states:", len(self.init_states))
 
     #for i in range(self.num_lstm_layers):
     #  feeds[self.init_states[i][0]] = zero_states[i][0]
@@ -526,7 +535,7 @@ class AttentionMDN(object):
       self.mix_weights,
       self.gauss_params,
       self.stroke,
-      self.last_lstm_state
+      self.recurrent_states
     ]
 
     mix, params, stroke, init_state = \
@@ -534,6 +543,9 @@ class AttentionMDN(object):
     print("mix shape:", mix.shape)
     print("params shape:", len(params), len(params[1]), params[1][0].shape)
     print("stroke shape:", stroke.shape)
+    print("state lens:", [len(s) for s in init_state])
+    print("init state[2][0] len", len(init_state[2][0]))
+    print("type init_state[2][0]", type(init_state[2][0]))
 
     # Need to loop over the method "_run_once" and constantly update its
     # initial recurrent state and input value.
@@ -559,7 +571,7 @@ class AttentionMDN(object):
     # Just need to stretch the dimensions of the tensors being fed back in...
     for i in range(1, num_steps):
       temp_dot, temp_stroke, temp_state, params_, mix_ = \
-        self._run_once(dots[i-1], strokes[i-1], states[i-1])
+        self._run_once(dots[i-1], strokes[i-1], states[i-1], ascii)
       dots.append(temp_dot)
       strokes.append(temp_stroke[np.newaxis,:,:])
       #state = init_state
