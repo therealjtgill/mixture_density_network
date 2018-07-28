@@ -69,6 +69,7 @@ class WindowCell(RNNCell):
       kappa_hats = gen_math_ops.exp(kappas) + state
       alpha_hats = gen_math_ops.exp(alphas)
       beta_hats = gen_math_ops.exp(betas)
+      #beta_hats = 8*gen_math_ops.sigmoid(betas) + 0.1
       u = tf.range(tf.cast(self.num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
 
       kappa_hat_list = tf.split(kappa_hats, [1,]*self.num_windows, axis=1)

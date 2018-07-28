@@ -55,6 +55,24 @@ def save_dots(dots, strokes, save_dir, offset=0):
   plt.close()
 
 
+def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", title="", filename="attention_weights"):
+
+  num_chars, alphabet_size = att.shape
+  print("attention weights shape:", att.shape)
+  np.savetxt(os.path.join(save_dir, "attention_weights" + suffix + str(i) + ".dat"), np.squeeze(att))
+  plt.figure()
+  plt.title(title)
+  if not ylabels == None:
+    plt.yticks(range(att.shape[0]), ylabels, fontsize=6)
+    plt.rcParams['ytick.labelsize'] = 12
+  plt.xlabel("sequence position")
+  plt.ylabel("alphabet index")
+  plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", aspect=8)
+  plt.savefig(os.path.join(save_dir, filename + str(i) + ".png"), dpi=600)
+  plt.close()
+  np.savetxt(os.path.join(save_dir, filename + str(i) + ".dat"), np.squeeze(att))
+
+
 if __name__ == "__main__":
 
   parser = argparse.ArgumentParser(description="The script used to run a mixture density network that has been trained on handwriting and conditioned on ASCII text.")
@@ -101,7 +119,11 @@ if __name__ == "__main__":
     os.makedirs(save_dir)
 
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
-
   test_vals = dh.get_test_batch(1, 100)
-  dots, strokes = mdn_model.run_cyclically(np.zeros((1,1,3)), np.stack([dh.ascii_to_one_hot(args.ascii_string)], axis=0), 1000)
-  save_dots(dots, strokes, save_dir, 1)
+
+  for i in range(100):
+    
+    dots, strokes, alphabet_weights = mdn_model.run_cyclically(np.zeros((1,1,3)), np.stack([dh.ascii_to_one_hot(args.ascii_string)], axis=0), 1000)
+    print("alphabet_weights shape:", alphabet_weights.shape)
+    save_dots(dots, strokes, save_dir, i)
+    save_attention_weights(alphabet_weights[0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=args.ascii_string, offset=i)

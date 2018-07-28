@@ -95,6 +95,7 @@ def save_dots(dots, strokes, save_dir, offset=0):
   dots = np.squeeze(dots)
   # Got rid of the squeeze on strokes because it has then potential to maintain a shape of [1,1,1]
   breaks = np.where(strokes[0,:,0] > 0.8)[0]
+  breaks = [0,] + breaks
   print("strokes shape:", strokes.shape)
   print("dots shape:", dots.shape)
   print("dots breaks:", breaks)
