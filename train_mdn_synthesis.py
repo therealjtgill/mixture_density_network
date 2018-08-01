@@ -136,7 +136,7 @@ def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", tit
   plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", aspect=8)
   plt.savefig(os.path.join(save_dir, filename + str(i) + ".png"), dpi=600)
   plt.close()
-  np.savetxt(os.path.join(save_dir, filename + str(i) + ".dat"), np.squeeze(att))
+  #np.savetxt(os.path.join(save_dir, filename + str(i) + ".dat"), np.squeeze(att))
 
 
 def save_mixture_weights(weights, save_dir, offset=0, suffix="", title=""):
@@ -154,7 +154,7 @@ def save_mixture_weights(weights, save_dir, offset=0, suffix="", title=""):
   plt.imshow(np.squeeze(weights).T, interpolation="nearest", cmap="gray", vmin=0.0, vmax=1.0)
   plt.savefig(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"))
   plt.close()
-  np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
+  #np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
 
 
 if __name__ == "__main__":

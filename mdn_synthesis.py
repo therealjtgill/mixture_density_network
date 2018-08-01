@@ -57,6 +57,9 @@ class AttentionMDN(object):
       # [batch_size, seq_length, input_size]  
       self.output_data = tf.placeholder(dtype=dtype,
                                         shape=[None, None, input_size], name="batch_targets")
+      # []
+      self.input_mixture_bias = tf.placeholder(dtype=dtype,
+                                 shape=[], name="bias")
 
       # Initial states for recurrent parts of the network
       self.zero_states = []
@@ -151,10 +154,11 @@ class AttentionMDN(object):
       # Get the mixture components
       splits = [num_means, num_variances, num_correlations, num_mix_gaussians, 1]
       pieces = tf.split(self.layers[-1], splits, axis=1)
+      self.mixture_bias = tf.nn.relu(self.input_mixture_bias)
       self.means = pieces[0]
-      self.stdevs = tf.nn.softplus(pieces[1])
+      self.stdevs = tf.exp(pieces[1] - self.mixture_bias)
       self.correls = tf.nn.tanh(pieces[2])
-      self.mix_weights = tf.nn.softmax(pieces[3])
+      self.mix_weights = tf.nn.softmax(pieces[3]*(1 + self.mixture_bias))
       self.stroke = tf.nn.sigmoid(pieces[4])
 
       # Reshape the means, stdevs, correlations, and mixture weights for
@@ -339,7 +343,8 @@ class AttentionMDN(object):
     feeds = {
       self.input_data: batch_in,
       self.output_data: batch_out,
-      self.input_ascii: batch_one_hots
+      self.input_ascii: batch_one_hots,
+      self.input_mixture_bias: 0
     }
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
@@ -400,7 +405,8 @@ class AttentionMDN(object):
     feeds = {
       self.input_data: batch_in,
       self.output_data: batch_out,
-      self.input_ascii: batch_one_hots
+      self.input_ascii: batch_one_hots,
+      self.input_mixture_bias: 0
     }
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
@@ -431,7 +437,7 @@ class AttentionMDN(object):
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)
 
 
-  def _run_once(self, input_, stroke_, initial_states, ascii):
+  def _run_once(self, input_, stroke_, initial_states, ascii, bias):
     '''
     Takes a single input, (e.g. batch_size = 1, sequence_length = 1), passes it
     to the MDN, grabs the mixture parameters and final recurrent state of the 
@@ -449,7 +455,8 @@ class AttentionMDN(object):
     # Concatenate stroke and (dx, dy) input to get (1, 1, 3) input tensor.
     feeds = {
       self.input_data: np.concatenate([input_, stroke_], axis=-1),
-      self.input_ascii: ascii
+      self.input_ascii: ascii,
+      self.mixture_bias: bias
     }
 
     #print("len initial states[2]:", len(initial_states[2])) 
@@ -471,11 +478,12 @@ class AttentionMDN(object):
       self.gauss_params,
       self.stroke,
       self.recurrent_states,
-      self.alphabet_weights
+      self.alphabet_weights,
+      self.phi
     ]
     #print('input_ shape:', input_.shape)
 
-    mix, params, stroke, state, aw = self.session.run(fetches, feed_dict=feeds)
+    mix, params, stroke, state, aw, phi = self.session.run(fetches, feed_dict=feeds)
     mix = np.squeeze(mix)
     squeezed_params = []
     squeezed_params.append([np.squeeze(p) for p in params[0]])
@@ -492,10 +500,10 @@ class AttentionMDN(object):
     stroke_sample = np.random.binomial(1, stroke)
 
     #return (sample, stroke, state)
-    return (pos_sample, stroke_sample, state, squeezed_params, mix, aw)
+    return (pos_sample, stroke_sample, state, squeezed_params, mix, aw, phi)
 
 
-  def run_cyclically(self, input_, ascii, num_steps):
+  def run_cyclically(self, input_, ascii, num_steps, bias):
     '''
     Takes a seed value, passes it to the MDN, the mixture density is sampled,
     and the sample is fed into the input of the MDN at the next timestep.
@@ -516,7 +524,8 @@ class AttentionMDN(object):
 
     feeds = {
       self.input_data: input_,
-      self.input_ascii: ascii
+      self.input_ascii: ascii,
+      self.input_mixture_bias: bias
     }
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
@@ -537,10 +546,11 @@ class AttentionMDN(object):
       self.gauss_params,
       self.stroke,
       self.recurrent_states,
-      self.alphabet_weights
+      self.alphabet_weights,
+      self.phi
     ]
 
-    mix, params, stroke, init_state, aw = \
+    mix, params, stroke, init_state, aw, phi = \
       self.session.run(fetches, feed_dict=feeds)
     print("mix shape:", mix.shape)
     print("params shape:", len(params), len(params[1]), params[1][0].shape)
@@ -556,6 +566,7 @@ class AttentionMDN(object):
     init_means = []
     init_covs = []
     init_correls = []
+    phis = [phi,]
     alphabet_weights = [aw,]
     states = []
     state = np.zeros_like(zero_states)
@@ -573,16 +584,17 @@ class AttentionMDN(object):
 
     # Just need to stretch the dimensions of the tensors being fed back in...
     for i in range(1, num_steps):
-      temp_dot, temp_stroke, temp_state, params_, mix_, aw = \
-        self._run_once(dots[i-1], strokes[i-1], states[i-1], ascii)
+      temp_dot, temp_stroke, temp_state, params_, mix_, aw, phi = \
+        self._run_once(dots[i-1], strokes[i-1], states[i-1], ascii, bias)
       dots.append(temp_dot)
       strokes.append(temp_stroke[np.newaxis,:,:])
       #state = init_state
       #init_state = state
       states.append(temp_state)
       alphabet_weights.append(aw)
+      phis.append(phi)
 
-    return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1), np.concatenate(alphabet_weights, axis=1)) # Getting shapes with three items: (1, sl, 2)
+    return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1), np.concatenate(alphabet_weights, axis=1), np.concatenate(phis, axis=1)) # Getting shapes with three items: (1, sl, 2)
 
 
   def save_params(self, location, global_step):

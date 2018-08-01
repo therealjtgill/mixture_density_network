@@ -61,7 +61,8 @@ class data_handler(object):
     self.data_test = self.data_all[num_train:num_train + num_test]
     self.data_validate = self.data_all[num_train + num_test:]
     #print("data sample: ", self.data_all[0][0])
-    self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
+    #self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
+    self.alphabet = sorted("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ` ")
     self.one_hot_alphabet_dict = {char:np.eye(len(self.alphabet), dtype=np.float32)[i] for i, char in enumerate(self.alphabet)}
     # "@" denotes an end of sequence; used to pad ascii one-hots.
     self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
@@ -121,8 +122,10 @@ class data_handler(object):
       if num_chars_in_line > max_num_chars:
         max_num_chars = num_chars_in_line
       num_chars_per_point = num_chars_in_line/num_points_in_line
-      #start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
-      start_index = 0
+      if np.random.rand() < 0.0:
+        start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
+      else:
+        start_index = 0
       char_offset = int(start_index*num_chars_per_point)
       #print("----------------------")
       #print("num_points_in_line:", num_points_in_line)
@@ -155,7 +158,14 @@ class data_handler(object):
 
   def ascii_to_one_hot(self, ascii_string):
 
-    return np.stack([self.one_hot_alphabet_dict[char.lower()] for char in ascii_string], axis=1).T #ugly
+    one_hots = []
+    for char in ascii_string:
+      if char in self.alphabet:
+        one_hots.append(self.one_hot_alphabet_dict[char])
+      else:
+        one_hots.append(self.one_hot_alphabet_dict['`'])
+    #return np.stack([self.one_hot_alphabet_dict[char.lower()] for char in ascii_string], axis=1).T #ugly
+    return np.stack(one_hots)
 
 
   def get_train_batch(self, batch_size, sequence_length):

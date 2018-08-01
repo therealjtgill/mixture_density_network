@@ -14,7 +14,7 @@ import numpy as np
 import tensorflow as tf
 
 
-def save_dots(dots, strokes, save_dir, offset=0):
+def save_dots(dots, strokes, save_dir, offset=0, suffix=""):
 
 #  breaks = np.squeeze(np.where(data[:,2] == 1))
 #  print('breaks:', breaks)
@@ -51,7 +51,7 @@ def save_dots(dots, strokes, save_dir, offset=0):
   else:
     plt.plot(map_dots[:,0], -map_dots[:,0], color="b")
   plt.axis("scaled")
-  plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + ".png"))
+  plt.savefig(os.path.join(save_dir, "cyclicalrunplot_" + str(suffix) + str(offset) + ".png"))
   plt.close()
 
 
@@ -84,6 +84,10 @@ if __name__ == "__main__":
                       help="Location of a checkpoint file to be loaded (for additional training or running).")
   parser.add_argument("--string", action="store", dest="ascii_string", type=str, required=True, default="this is a test",
                       help="The ASCII string that you want the network to write out as handwriting.")
+  parser.add_argument("--numsamples", action="store", dest="num_samples", type=int, required=False, default=1,
+                      help="The number of sequences of handwriting to generate from the given ASCII string. Use with a low bias value to get more diverse output.")
+  parser.add_argument("--bias", action="store", dest="bias", type=float, required=False, default=0,
+                      help="How heavily to bias sampling. Low/high bias values lead to consistent/varied styles of handwriting across samples.")
 
   args = parser.parse_args()
 
@@ -92,10 +96,16 @@ if __name__ == "__main__":
   num_att_components = 10
   checkpoint_file = args.checkpoint_file
   ascii_string = args.ascii_string
+  num_samples = args.num_samples
+  bias = args.bias
   input_size = 3
 
   if not os.path.exists(data_dir):
     print("Could not find data at location: %s\nExiting." % data_dir)
+    sys.exit(-1)
+
+  if checkpoint_file == None:
+    print("No checkpoint file specified!\nExiting.")
     sys.exit(-1)
 
   data_file = data_dir
@@ -106,24 +116,21 @@ if __name__ == "__main__":
 
   session = tf.Session()
   mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True)
-  if checkpoint_file == None:
-    session.run(tf.global_variables_initializer())
-  else:
-    #session.run(tf.global_variables_initializer())
-    print("Loading checkpoint file")
-    mdn_model.load_params(checkpoint_file)
+    
+  print("Loading checkpoint file")
+  mdn_model.load_params(checkpoint_file)
   save = tf.train.Saver()
 
-  save_dir = os.path.expanduser("~/documents/mdn_run_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-")
+  save_dir = os.path.expanduser("~/documents/mdn_run_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-") + "_" + ascii_string
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
 
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
   test_vals = dh.get_test_batch(1, 100)
 
-  for i in range(100):
-    
-    dots, strokes, alphabet_weights = mdn_model.run_cyclically(np.zeros((1,1,3)), np.stack([dh.ascii_to_one_hot(args.ascii_string)], axis=0), 1000)
+  for i in range(num_samples):
+    print("using bias: ", bias)
+    dots, strokes, alphabet_weights, phi = mdn_model.run_cyclically(np.zeros((1,1,3)), np.stack([dh.ascii_to_one_hot(args.ascii_string)], axis=0), 1000, bias)
     print("alphabet_weights shape:", alphabet_weights.shape)
-    save_dots(dots, strokes, save_dir, i)
+    save_dots(dots, strokes, save_dir, i, suffix=str(bias))
     save_attention_weights(alphabet_weights[0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=args.ascii_string, offset=i)
