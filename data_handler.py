@@ -62,7 +62,7 @@ class data_handler(object):
     self.data_validate = self.data_all[num_train + num_test:]
     #print("data sample: ", self.data_all[0][0])
     #self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
-    self.alphabet = sorted("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ` ")
+    self.alphabet = sorted("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ` .!?")
     self.one_hot_alphabet_dict = {char:np.eye(len(self.alphabet), dtype=np.float32)[i] for i, char in enumerate(self.alphabet)}
     # "@" denotes an end of sequence; used to pad ascii one-hots.
     self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
@@ -122,10 +122,7 @@ class data_handler(object):
       if num_chars_in_line > max_num_chars:
         max_num_chars = num_chars_in_line
       num_chars_per_point = num_chars_in_line/num_points_in_line
-      if np.random.rand() < 0.0:
-        start_index = np.random.randint(0, data[i][1].shape[0] - sequence_length)
-      else:
-        start_index = 0
+      start_index = 0
       char_offset = int(start_index*num_chars_per_point)
       #print("----------------------")
       #print("num_points_in_line:", num_points_in_line)
@@ -160,7 +157,7 @@ class data_handler(object):
 
     one_hots = []
     for char in ascii_string:
-      if char in self.alphabet:
+      if char in self.alphabet or char == '@':
         one_hots.append(self.one_hot_alphabet_dict[char])
       else:
         one_hots.append(self.one_hot_alphabet_dict['`'])
@@ -193,3 +190,4 @@ if __name__ == "__main__":
   dh.get_test_batch(63, 299)
   dh.get_validation_batch(62, 298)
   print("Num training lines:", len(dh.data_train))
+  print("Length of alphabet:", len(self.alphabet))

@@ -70,7 +70,7 @@ class WindowCell(RNNCell):
       alpha_hats = gen_math_ops.exp(alphas)
       beta_hats = gen_math_ops.exp(betas)
       #beta_hats = 8*gen_math_ops.sigmoid(betas) + 0.1
-      u = tf.range(tf.cast(self.num_chars, dtype), dtype=dtype) # Integer values of 'u' in phi
+      u = tf.range(tf.cast(self.num_chars + 1, dtype), dtype=dtype) # Integer values of 'u' in phi
 
       kappa_hat_list = tf.split(kappa_hats, [1,]*self.num_windows, axis=1)
       beta_hat_list = tf.split(beta_hats, [1,]*self.num_windows, axis=1)
@@ -78,9 +78,9 @@ class WindowCell(RNNCell):
 
       phi = 0
       for i in range(self.num_windows):
-        kappa_hat_tiled = tf.tile(kappa_hat_list[i], [1, self.num_chars])
-        beta_hat_tiled = tf.tile(beta_hat_list[i], [1, self.num_chars])
-        alpha_hat_tiled = tf.tile(alpha_hat_list[i], [1, self.num_chars])
+        kappa_hat_tiled = tf.tile(kappa_hat_list[i], [1, self.num_chars + 1])
+        beta_hat_tiled = tf.tile(beta_hat_list[i], [1, self.num_chars + 1])
+        alpha_hat_tiled = tf.tile(alpha_hat_list[i], [1, self.num_chars + 1])
         z = -1*beta_hat_tiled*tf.square(kappa_hat_tiled - u)
         phi += alpha_hat_tiled*tf.exp(z)
       print("information about phi:", phi)

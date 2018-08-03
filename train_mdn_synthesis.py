@@ -125,7 +125,7 @@ def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", tit
 
   num_chars, alphabet_size = att.shape
   print("attention weights shape:", att.shape)
-  np.savetxt(os.path.join(save_dir, "attention_weights" + suffix + str(i) + ".dat"), np.squeeze(att))
+  #np.savetxt(os.path.join(save_dir, "attention_weights" + suffix + str(i) + ".dat"), np.squeeze(att))
   plt.figure()
   plt.title(title)
   if not ylabels == None:
@@ -145,7 +145,7 @@ def save_mixture_weights(weights, save_dir, offset=0, suffix="", title=""):
   #print("sample weights values:", np.squeeze(weights))
   #print("  weights sum along last axis:", np.sum(np.squeeze(weights), axis=-1))
   print("mixture weights shape:", weights.shape)
-  np.savetxt(os.path.join(save_dir, "mixture_weights" + suffix + str(i) + ".dat"), np.squeeze(weights))
+  #np.savetxt(os.path.join(save_dir, "mixture_weights" + suffix + str(i) + ".dat"), np.squeeze(weights))
   plt.figure()
   plt.title(title)
   plt.xlabel("sequence position")
@@ -208,7 +208,7 @@ if __name__ == "__main__":
   tf.reset_default_graph()
 
   session = tf.Session()
-  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True)
+  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 350, alphabet_size=dh.alphabet_size(), save=True, dropout=0.85)
   if checkpoint_file == None:
     session.run(tf.global_variables_initializer())
   else:
@@ -228,10 +228,9 @@ if __name__ == "__main__":
     print("\niteration number: ", i)
     start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
-    # loss, means, stdevs, mix
+    batch_time = datetime.datetime.now() - start_time
     things = mdn_model.train_batch(train["X"], train["onehot"], train["y"])
-    #print("mixture evaluation max: ", np.amax(things[-1]), "min: ", np.amin(things[-1]))
-    #print("individual gaussian evaluations max: ", np.amax(things[-2]), "min: ", np.amin(things[-2]))
+
     if i % 100 == 0:
       print("  saving images", i)
       temp_test_vals = copy.deepcopy(test_vals)
@@ -249,7 +248,9 @@ if __name__ == "__main__":
 
     #mdn_model.validate_batch(fake_train_in, fake_train_out)
 
+    delta_batch = datetime.datetime.now() - start_time
     print("loss: ", things[0], "loss shape: ", things[0].shape)
-    delta = datetime.datetime.now() - start_time
+    print("\t", "batch_time:", batch_time.total_seconds())
+    print("\t", "delta_train:", delta_batch.total_seconds())
     with open(os.path.join(save_dir, "_error.dat"), "a") as f:
-      f.write(str(i) + "," + str(things[0]) + ", " + str(delta.total_seconds()) + "\n")
+      f.write(str(i) + "," + str(things[0]) + ", " + str(delta_batch.total_seconds()) + "\n")

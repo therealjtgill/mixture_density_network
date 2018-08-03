@@ -12,7 +12,7 @@ class AttentionMDN(object):
   '''
 
   def __init__(self, session, input_size, num_att_gaussians=3, num_mix_gaussians=3, lstm_cell_size=300,
-               alphabet_size=None, save=False):
+               alphabet_size=None, save=False, dropout=1.0, l2_penalty=0.0):
     '''
     Sets up the computation graph for the MDN.
     Bishop, et. al, use a mixture of univariate gaussians, which allows them
@@ -30,11 +30,11 @@ class AttentionMDN(object):
     self.biases = []
     self.layers = []
     self.init_states = []
-    self.num_lstm_layers = 3
+    self.dropout = dropout
     self.num_mix_gaussians = num_mix_gaussians
     self.num_att_gaussians = num_att_gaussians
     self.input_size = input_size
-    self.l2_penalty = 0.00001
+    self.l2_penalty = l2_penalty
     self.alphabet_size = alphabet_size
     
     num_means = num_mix_gaussians*(input_size - 1)
@@ -67,7 +67,6 @@ class AttentionMDN(object):
       ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
-      #self.init_states.append([ph_c, ph_h])
 
       ph_v = tf.placeholder(dtype=dtype, shape=[None, num_att_gaussians])
       self.init_states.append(ph_v)
@@ -75,7 +74,6 @@ class AttentionMDN(object):
       ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
-      #self.init_states.append([ph_c, ph_h])
 
       self.init_states = tuple(self.init_states)
       # End initial states
@@ -89,31 +87,30 @@ class AttentionMDN(object):
       # means that we need to split the output of the LSTM between recurrent
       # and non-recurrent output.
 
-      # Attention Mechanism
+      # Attention mechanism
       self.recurrent_states = []
       lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
+      lstm_1_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_1, output_keep_prob=self.dropout)
       window = WindowCell(lstm_cell_size, num_chars, self.num_att_gaussians)
       self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
       self.zero_states.append(window.zero_state(batch_size, dtype=dtype))
-      #first_rnn_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_1, window])
-      #self.phi, attention_state = \
-      #  tf.nn.dynamic_rnn(first_rnn_cells, self.input_data, dtype=dtype,
-      #    initial_state=self.init_states[0:2])
-      #self.recurrent_states.append(attention_state)
       # Get back num_att_gaussians tensors of shape [bs, sl, 3], which is a
       # tensor of attention window parameters for each attention gaussian.
       # size(attention_params) = [num_att_gaussians, bs, sl, 3]
       #   (technically a list of size 'num_att_gaussians' with [bs, sl, 3] size 
       #   tensors at each element of the list)
-      #self.layers.append(self.phi)
 
-      lstm_1_out, lstm_1_state = tf.nn.dynamic_rnn(lstm_1, self.input_data, dtype=dtype,
+      lstm_1_out, lstm_1_state = tf.nn.dynamic_rnn(lstm_1_dropout, self.input_data, dtype=dtype,
         initial_state=self.init_states[0])
       self.layers.append(lstm_1_out)
       self.recurrent_states.append(lstm_1_state)
 
-      self.phi, attention_state = tf.nn.dynamic_rnn(window, lstm_1_out, dtype=dtype,
+      #self.phi, attention_state = tf.nn.dynamic_rnn(window, lstm_1_out, dtype=dtype,
+      #  initial_state=self.init_states[1])
+      #self.layers.append(self.phi)
+      self.phi_plus, attention_state = tf.nn.dynamic_rnn(window, lstm_1_out, dtype=dtype,
         initial_state=self.init_states[1])
+      self.phi, self.stop_check = tf.split(self.phi_plus, [num_chars, 1], axis=-1)
       self.layers.append(self.phi)
       self.recurrent_states.append(attention_state)
       # Need to evaluate each gaussian at an index value corresponding to a
@@ -132,20 +129,20 @@ class AttentionMDN(object):
       self.layers.append(self.alphabet_weights)
       # End attention mechanism
 
-      # Final Recurrent Layers
+      # Final recurrent layer
       lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
-      #self.layers.append(lstm_2)
+      lstm_2_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_2, output_keep_prob=self.dropout)
 
       lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
-      last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
+      last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
                           initial_state=self.init_states[2:3])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
-      #self.recurrent_states.append([s for s in outputs_state])
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
       self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
+      # End final recurrent layer
 
       # Output layer
       shape = [lstm_cell_size, output_size]
@@ -349,9 +346,6 @@ class AttentionMDN(object):
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
-    #for i in range(self.num_lstm_layers):
-    #  feeds[self.init_states[i][0]] = zero_states[i][0]
-    #  feeds[self.init_states[i][1]] = zero_states[i][1]
     feeds[self.init_states[0][0]] = zero_states[0][0]
     feeds[self.init_states[0][1]] = zero_states[0][1]
     feeds[self.init_states[1]] = zero_states[1]
@@ -411,9 +405,6 @@ class AttentionMDN(object):
 
     zero_states = self.session.run(self.zero_states, feed_dict=feeds)
 
-    #for i in range(self.num_lstm_layers):
-    #  feeds[self.init_states[i][0]] = zero_states[i][0]
-    #  feeds[self.init_states[i][1]] = zero_states[i][1]
     feeds[self.init_states[0][0]] = zero_states[0][0]
     feeds[self.init_states[0][1]] = zero_states[0][1]
     feeds[self.init_states[1]] = zero_states[1]
@@ -462,9 +453,6 @@ class AttentionMDN(object):
     #print("len initial states[2]:", len(initial_states[2])) 
 
     # Initialize recurrent states with the states from the previous timestep.
-    #for i in range(self.num_lstm_layers):
-    #  feeds[self.init_states[i][0]] = initial_states[i][0]
-    #  feeds[self.init_states[i][1]] = initial_states[i][1]
     feeds[self.init_states[0][0]] = initial_states[0][0]
     feeds[self.init_states[0][1]] = initial_states[0][1]
     feeds[self.init_states[1]] = initial_states[1]
@@ -532,9 +520,6 @@ class AttentionMDN(object):
     print("len zero states:", len(zero_states))
     print("len init states:", len(self.init_states))
 
-    #for i in range(self.num_lstm_layers):
-    #  feeds[self.init_states[i][0]] = zero_states[i][0]
-    #  feeds[self.init_states[i][1]] = zero_states[i][1]
     feeds[self.init_states[0][0]] = zero_states[0][0]
     feeds[self.init_states[0][1]] = zero_states[0][1]
     feeds[self.init_states[1]] = zero_states[1]
