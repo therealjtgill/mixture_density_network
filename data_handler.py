@@ -46,7 +46,6 @@ class data_handler(object):
       num_pad_spaces = self.max_ascii_length - len(ascii_data) + 1
       #print(ascii_data)
       self.data_all[i][0] = ascii_data + " "*num_pad_spaces
-
     print("Loading finished.")
 
     print("Splitting data.")
@@ -68,9 +67,17 @@ class data_handler(object):
     self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
     #self.alphabet.append('@')
     print("alphabet: ", self.alphabet)
-    #print("one hot alphabet: ", self.one_hot_alphabet_dict)
-    #print("alphabet size: ", len(self.alphabet))
     print("Splitting finished.")
+
+
+  def save_alphabet(self, save_dir):
+    '''
+    Saves the class's alphabet and one-hot alphabet dictionary off as a pickle
+    file so that running the synthesis network won't require initializing the
+    entire data handler class.
+    '''
+
+    pickle.dump([self.alphabet, self.one_hot_alphabet_dict], open(os.path.join(save_dir, "alphabet.pkl"), "wb"))
 
 
   def alphabet_size(self):
@@ -82,7 +89,7 @@ class data_handler(object):
     return len(self.alphabet)
 
 
-  def get_batch(self, batch_size, sequence_length, dataset):
+  def get_batch(self, batch_size, sequence_length, dataset, pad_char='@'):
     '''
     One-stop shop to get batches from any of the sets.
   	'''
@@ -140,11 +147,13 @@ class data_handler(object):
     for i in range(len(batch_ascii)):
       temp_ascii = batch_ascii[i]
       if len(batch_ascii[i]) < max_num_chars:
-        temp_ascii += ' '*(max_num_chars - len(temp_ascii))
+        temp_ascii += pad_char*(max_num_chars - len(temp_ascii))
       batch_ascii_one_hot.append(self.ascii_to_one_hot(temp_ascii))
 
     batch_in = np.stack(batch_in, axis=0)
+    #batch_in[0:2] /= 10
     batch_out = np.stack(batch_out, axis=0)
+    #batch_out[0:2] /= 10
     batch_ascii_one_hot = np.stack(batch_ascii_one_hot, axis=0)
     #print(batch_in.shape)
     #print(batch_out.shape)
@@ -167,17 +176,17 @@ class data_handler(object):
 
   def get_train_batch(self, batch_size, sequence_length):
 
-    return self.get_batch(batch_size, sequence_length, "train")
+    return self.get_batch(batch_size, sequence_length, "train", '@')
 
 
   def get_test_batch(self, batch_size, sequence_length):
     
-    return self.get_batch(batch_size, sequence_length, "test")
+    return self.get_batch(batch_size, sequence_length, "test", '@')
 
 
   def get_validation_batch(self, batch_size, sequence_length):
     
-    return self.get_batch(batch_size, sequence_length, "validate")
+    return self.get_batch(batch_size, sequence_length, "validate", '@')
 
 
 if __name__ == "__main__":

@@ -83,18 +83,9 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0, tit
 
 def save_dots(dots, strokes, save_dir, offset=0):
 
-#  breaks = np.squeeze(np.where(data[:,2] == 1))
-#  print('breaks:', breaks)
-#
-#  plt.figure()
-#  for i in range(1, len(breaks)):
-#    #print('x', data[breaks[i-1]:breaks[i], 0], 'y', data[breaks[i-1]:breaks[i], 1])
-#    plt.plot(data[breaks[i-1]+1:breaks[i], 0], data[breaks[i-1]+1:breaks[i], 1])
-#  plt.show()
-
   dots = np.squeeze(dots)
   # Got rid of the squeeze on strokes because it has then potential to maintain a shape of [1,1,1]
-  breaks = np.where(strokes[0,:,0] > 0.8)[0]
+  breaks = np.where(strokes[0,:,0] > 0.4)[0]
   breaks = [0,] + breaks
   print("strokes shape:", strokes.shape)
   print("dots shape:", dots.shape)
@@ -167,16 +158,13 @@ if __name__ == "__main__":
   parser.add_argument("--nummixcomps", action="store", dest="num_mix_components", type=int, default=20,
                       help="Optional argument to specify the number of gaussians in the Gaussian Mixture Model. \
                       Note that adding more components requires a greater number of weights on the output layer.")
-  parser.add_argument("--numlayers", action="store", dest="num_layers", type=int, default=3,
-                      help="Optional argument to specify the number of LSTM layers that will be used as part of the NN. \
-                      Note that a large number of layers will decrease training error, but will require more RAM.")
   parser.add_argument("--truncatedata", action="store", dest="truncate_data", type=bool, default=False,
                       help="Optional argument to only load a portion of the training data (the first 100 files). \
                       This should be used for debugging purposes only.")
   parser.add_argument("--iterations", action="store", dest="num_iterations", type=int, default=75000,
                       help="Supply a maximum number of iterations of network training. This is the number of batches of \
                       data that will be presented to the network, NOT the number of epochs.")
-  parser.add_argument("--selfcycles", action="store", dest="num_cycles", type=int, default=400,
+  parser.add_argument("--maxsynthcycles", action="store", dest="num_cycles", type=int, default=400,
                       help="Have the network generate its own data points for this number of timesteps.")
   parser.add_argument("--numattcomps", action="store", dest="num_att_components", type=int, default=7,
                       help="Number of attention gaussians for convolution with one-hot ASCII text.")
@@ -187,7 +175,6 @@ if __name__ == "__main__":
 
   data_dir = args.data_dir
   num_mix_components = args.num_mix_components
-  num_layers = args.num_layers
   num_att_components = args.num_att_components
   checkpoint_file = args.checkpoint_file
   input_size = 3
@@ -220,7 +207,9 @@ if __name__ == "__main__":
   save_dir = os.path.expanduser("~/documents/mdn_") + str(datetime.datetime.today()).replace(":", "-").replace(" ", "-")
   if not os.path.exists(save_dir):
     os.makedirs(save_dir)
-
+  
+  # Save off a pickle of the alphabet and one-hot encodings.
+  dh.save_alphabet(save_dir)
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
   test_vals = dh.get_test_batch(2, 300)

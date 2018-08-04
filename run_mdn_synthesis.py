@@ -85,9 +85,11 @@ if __name__ == "__main__":
   parser.add_argument("--string", action="store", dest="ascii_string", type=str, required=True, default="this is a test",
                       help="The ASCII string that you want the network to write out as handwriting.")
   parser.add_argument("--numsamples", action="store", dest="num_samples", type=int, required=False, default=1,
-                      help="The number of sequences of handwriting to generate from the given ASCII string. Use with a low bias value to get more diverse output.")
+                      help="The number of sequences of handwriting to generate from the given ASCII string..")
   parser.add_argument("--bias", action="store", dest="bias", type=float, required=False, default=0,
-                      help="How heavily to bias sampling. Low/high bias values lead to consistent/varied styles of handwriting across samples.")
+                      help="How heavily to bias sampling. Low/high bias values lead to consistent/diverse styles of handwriting across samples.")
+  parser.add_argument("--maxdots", action="store", dest="max_dots", type=int, required=False, default=1500,
+                      help="The maximum number of dots that will be used to generate the handwriting sample.")
 
   args = parser.parse_args()
 
@@ -97,6 +99,7 @@ if __name__ == "__main__":
   checkpoint_file = args.checkpoint_file
   ascii_string = args.ascii_string
   num_samples = args.num_samples
+  max_dots = args.max_dots
   bias = args.bias
   input_size = 3
 
@@ -130,7 +133,7 @@ if __name__ == "__main__":
 
   for i in range(num_samples):
     print("using bias: ", bias)
-    dots, strokes, alphabet_weights, phi = mdn_model.run_cyclically(np.zeros((1,1,3)), np.stack([dh.ascii_to_one_hot(args.ascii_string)], axis=0), 1000, bias)
+    dots, strokes, alphabet_weights, phi = mdn_model.run_cyclically(np.zeros((1,1,3)), np.stack([dh.ascii_to_one_hot(args.ascii_string)], axis=0), max_dots, bias)
     print("alphabet_weights shape:", alphabet_weights.shape)
     save_dots(dots, strokes, save_dir, i, suffix=str(bias))
     save_attention_weights(alphabet_weights[0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=args.ascii_string, offset=i)

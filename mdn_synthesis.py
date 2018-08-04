@@ -285,7 +285,7 @@ class AttentionMDN(object):
       gaussians = []
       for i in range(num_mix_gaussians):
         correls_denom = tf.reduce_sum(1 - comp_correls[i]*comp_correls[i], axis=1)
-        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom) + 1e-8)
+        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(tf.maximum(correls_denom, 1e-12)) + 1e-8)
         print("\tfactor", i, ":", factor.shape)
         #print(self.session.run([tf.shape(comp_means[i]), tf.shape(comp_stdevs[i])]))
         norms = (values - comp_means[i])/(comp_stdevs[i] + 1e-8)
