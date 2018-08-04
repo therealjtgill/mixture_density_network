@@ -100,8 +100,12 @@ class AttentionMDN(object):
       #   (technically a list of size 'num_att_gaussians' with [bs, sl, 3] size 
       #   tensors at each element of the list)
 
-      lstm_1_out, lstm_1_state = tf.nn.dynamic_rnn(lstm_1_dropout, self.input_data, dtype=dtype,
-        initial_state=self.init_states[0])
+      if self.dropout == 1.0:
+        lstm_1_out, lstm_1_state = tf.nn.dynamic_rnn(lstm_1, self.input_data, dtype=dtype,
+          initial_state=self.init_states[0])
+      else:
+        lstm_1_out, lstm_1_state = tf.nn.dynamic_rnn(lstm_1_dropout, self.input_data, dtype=dtype,
+          initial_state=self.init_states[0])
       self.layers.append(lstm_1_out)
       self.recurrent_states.append(lstm_1_state)
 
@@ -134,7 +138,10 @@ class AttentionMDN(object):
       lstm_2_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_2, output_keep_prob=self.dropout)
 
       lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
-      last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
+      if self.dropout == 1.0:
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
+      else:
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
                           initial_state=self.init_states[2:3])
@@ -467,11 +474,12 @@ class AttentionMDN(object):
       self.stroke,
       self.recurrent_states,
       self.alphabet_weights,
-      self.phi
+      self.phi,
+      self.stop_check
     ]
     #print('input_ shape:', input_.shape)
 
-    mix, params, stroke, state, aw, phi = self.session.run(fetches, feed_dict=feeds)
+    mix, params, stroke, state, aw, phi, stop = self.session.run(fetches, feed_dict=feeds)
     mix = np.squeeze(mix)
     squeezed_params = []
     squeezed_params.append([np.squeeze(p) for p in params[0]])
@@ -488,7 +496,7 @@ class AttentionMDN(object):
     stroke_sample = np.random.binomial(1, stroke)
 
     #return (sample, stroke, state)
-    return (pos_sample, stroke_sample, state, squeezed_params, mix, aw, phi)
+    return (pos_sample, stroke_sample, state, squeezed_params, mix, aw, phi, stop)
 
 
   def run_cyclically(self, input_, ascii, num_steps, bias):
@@ -532,10 +540,11 @@ class AttentionMDN(object):
       self.stroke,
       self.recurrent_states,
       self.alphabet_weights,
-      self.phi
+      self.phi,
+      self.stop_check
     ]
 
-    mix, params, stroke, init_state, aw, phi = \
+    mix, params, stroke, init_state, aw, phi, stop = \
       self.session.run(fetches, feed_dict=feeds)
     print("mix shape:", mix.shape)
     print("params shape:", len(params), len(params[1]), params[1][0].shape)
@@ -567,17 +576,25 @@ class AttentionMDN(object):
     strokes.append(stroke[np.newaxis, np.newaxis,-1,:])
     states.append(init_state)
 
-    # Just need to stretch the dimensions of the tensors being fed back in...
-    for i in range(1, num_steps):
-      temp_dot, temp_stroke, temp_state, params_, mix_, aw, phi = \
+    stop_cycle = False
+    i = 1
+    #for i in range(1, num_steps):
+    while (not stop_cycle) and i < num_steps:
+      temp_dot, temp_stroke, temp_state, params_, mix_, temp_aw, temp_phi, temp_stop = \
         self._run_once(dots[i-1], strokes[i-1], states[i-1], ascii, bias)
       dots.append(temp_dot)
       strokes.append(temp_stroke[np.newaxis,:,:])
       #state = init_state
       #init_state = state
       states.append(temp_state)
-      alphabet_weights.append(aw)
-      phis.append(phi)
+      alphabet_weights.append(temp_aw)
+      phis.append(temp_phi)
+      for u in range(len(ascii)):
+        if temp_stop[0,0,0] > temp_phi[0,0,u]:
+          stop_cycle = True
+          print("\tStopping the cyclical run after", i, "steps")
+          break
+      i += 1
 
     return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1), np.concatenate(alphabet_weights, axis=1), np.concatenate(phis, axis=1)) # Getting shapes with three items: (1, sl, 2)
 

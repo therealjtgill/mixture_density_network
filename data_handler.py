@@ -140,7 +140,7 @@ class data_handler(object):
     for i in range(len(batch_ascii)):
       temp_ascii = batch_ascii[i]
       if len(batch_ascii[i]) < max_num_chars:
-        temp_ascii += '@'*(max_num_chars - len(batch_ascii[i]))
+        temp_ascii += ' '*(max_num_chars - len(temp_ascii))
       batch_ascii_one_hot.append(self.ascii_to_one_hot(temp_ascii))
 
     batch_in = np.stack(batch_in, axis=0)

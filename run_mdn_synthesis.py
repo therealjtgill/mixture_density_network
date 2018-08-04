@@ -115,7 +115,7 @@ if __name__ == "__main__":
   tf.reset_default_graph()
 
   session = tf.Session()
-  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True)
+  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 350, alphabet_size=dh.alphabet_size(), save=True)
     
   print("Loading checkpoint file")
   mdn_model.load_params(checkpoint_file)
