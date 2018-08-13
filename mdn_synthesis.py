@@ -21,9 +21,6 @@ class AttentionMDN(object):
     model uses full covariance matrices for the mixture components.
     '''
 
-    # TODO @therealjtgill - Need to add the multicell dynamic rnn states to a
-    # class member variable for the run_once and run_cyclically methods.
-
     dtype = tf.float32
     self.session = session
     self.weights = []
@@ -75,6 +72,10 @@ class AttentionMDN(object):
       ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
       self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
 
+      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+
       self.init_states = tuple(self.init_states)
       # End initial states
 
@@ -89,7 +90,7 @@ class AttentionMDN(object):
 
       # Attention mechanism
       self.recurrent_states = []
-      lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size)
+      lstm_1 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_a")
       lstm_1_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_1, output_keep_prob=self.dropout)
       window = WindowCell(lstm_cell_size, num_chars, self.num_att_gaussians)
       self.zero_states.append(lstm_1.zero_state(batch_size, dtype=dtype))
@@ -134,26 +135,33 @@ class AttentionMDN(object):
       # End attention mechanism
 
       # Final recurrent layer
-      lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="a")
+      lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_b")
       lstm_2_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_2, output_keep_prob=self.dropout)
+      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_c")
+      lstm_3_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_3, output_keep_prob=self.dropout)
 
       lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
       if self.dropout == 1.0:
-        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
       else:
-        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
+        #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout, lstm_3_dropout])
+      #outputs, outputs_state = \
+        #tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
+        #                  initial_state=self.init_states[2:3])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
-                          initial_state=self.init_states[2:3])
+                          initial_state=self.init_states[2:])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
       self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
+      self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
       # End final recurrent layer
 
       # Output layer
       shape = [lstm_cell_size, output_size]
-      self.layers.append(self._linear_op(self.layers[-1], shape))
+      self.layers.append(self._linear_op(self.layers[-1], shape, "output_mixture_layer"))
 
       # Get the mixture components
       splits = [num_means, num_variances, num_correlations, num_mix_gaussians, 1]
@@ -202,14 +210,27 @@ class AttentionMDN(object):
       self.stroke_loss = tf.reduce_sum(stroke_loss, axis=-1)
       print(self.stroke_loss.shape)
 
+      #self.loss = tf.reduce_mean(-1*tf.log(tf.maximum(self.mixture, 1e-8)) + self.stroke_loss, name="loss")
       self.loss = tf.reduce_mean(-1*tf.log(self.mixture + 1e-8) + self.stroke_loss, name="loss")
       self.loss += self.l2_penalty*tf.reduce_sum([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
       # Need to clip gradients (?)
       optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001, momentum=0.9)
-      self.train_op = optimizer.minimize(self.loss)
+      #self.train_op = optimizer.minimize(self.loss)
+      gradients = optimizer.compute_gradients(self.loss)
+      print("lstm vars:", [var.name for grad, var in gradients if "mdn_lstm_" in var.name])
+      print("output mixture vars:", [var.name for grad, var in gradients if "output_mixture_layer" in var.name])
+      #capped_lstm_grads = [(tf.clip_by_value(grad, -20., 20.), var) for grad, var in gradients
+      #                    if "mdn_lstm_" in var.name]
+      #capped_output_grads = [(tf.clip_by_value(grad, -100., 100.), var) for grad, var in gradients
+      #                       if "output_mixture_layer" in var.name]
+      #remaining_grads = [(grad, var) for grad, var in gradients
+      #                   if "mdn_lstm_" not in var.name and "output_mixture_layer" not in var.name]
+      capped_norm_grads = [(tf.clip_by_norm(grad, 10), var) for grad, var in gradients]
+      #self.train_op = optimizer.apply_gradients(capped_lstm_grads + capped_output_grads + remaining_grads)
+      self.train_op = optimizer.apply_gradients(capped_norm_grads)
 
       if save:
-        self.saver = tf.train.Saver()
+        self.saver = tf.train.Saver(max_to_keep=20)
 
 
   def _get_weights(self, shape, name="requested_weight"):
@@ -227,7 +248,7 @@ class AttentionMDN(object):
     return (len(self.weights) - 1, len(self.biases) - 1)
 
 
-  def _linear_op(self, input_tensor, shape):
+  def _linear_op(self, input_tensor, shape, name="linear_op_weights"):
     '''
     Perform simple matmul and bias offset between the input_tensor and a tensor
     of weights that will be generated in this method.
@@ -240,7 +261,7 @@ class AttentionMDN(object):
       matmul(input_tensor, W) + b
     '''
 
-    (W_loc, b_loc) = self._get_weights(shape, "linear_op_weights")
+    (W_loc, b_loc) = self._get_weights(shape, name)
 
     return tf.matmul(input_tensor, self.weights[W_loc]) + self.biases[b_loc]
 
@@ -285,7 +306,7 @@ class AttentionMDN(object):
       gaussians = []
       for i in range(num_mix_gaussians):
         correls_denom = tf.reduce_sum(1 - comp_correls[i]*comp_correls[i], axis=1)
-        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(tf.maximum(correls_denom, 1e-12)) + 1e-8)
+        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom) + 1e-8)
         print("\tfactor", i, ":", factor.shape)
         #print(self.session.run([tf.shape(comp_means[i]), tf.shape(comp_stdevs[i])]))
         norms = (values - comp_means[i])/(comp_stdevs[i] + 1e-8)
@@ -358,6 +379,8 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = zero_states[1]
     feeds[self.init_states[2][0]] = zero_states[2][0]
     feeds[self.init_states[2][1]] = zero_states[2][1]
+    feeds[self.init_states[3][0]] = zero_states[3][0]
+    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.train_op,
@@ -386,8 +409,11 @@ class AttentionMDN(object):
     if max_correl > 1:
       print("OUT OF BOUNDS VALUE FOR MAX_CORREL")
       sys.exit(-1)
-    if loss == np.nan:
+    if np.isnan(loss):
       print("LOSS IS NAN. ABORTING.")
+      with open("failmode.dat", "w") as f:
+        for i, item in enumerate((loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)):
+          f.write(str(item))
       sys.exit(-1)
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)
 
@@ -417,6 +443,8 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = zero_states[1]
     feeds[self.init_states[2][0]] = zero_states[2][0]
     feeds[self.init_states[2][1]] = zero_states[2][1]
+    feeds[self.init_states[3][0]] = zero_states[3][0]
+    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.loss,
@@ -432,6 +460,13 @@ class AttentionMDN(object):
     ]
 
     loss, gauss_eval, mix_eval, means_, stdevs_, mix, stroke, params, aw, phi  = self.session.run(fetches, feed_dict=feeds)
+    if np.isnan(loss):
+      print("LOSS IS NAN. ABORTING.")
+      with open("failmode.dat", "w") as f:
+        for i, item in enumerate((loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)):
+          f.write(str(item))
+      sys.exit(-1)
+
     return (loss, means_, stdevs_, mix, gauss_eval, mix_eval, stroke, aw, phi)
 
 
@@ -465,6 +500,8 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = initial_states[1]
     feeds[self.init_states[2][0]] = initial_states[2][0][0] # Ugly because of multirnncell
     feeds[self.init_states[2][1]] = initial_states[2][0][1] # Ugly because of multirnncell
+    feeds[self.init_states[3][0]] = initial_states[3][0][0] # Ugly because of multirnncell
+    feeds[self.init_states[3][1]] = initial_states[3][0][1] # Ugly because of multirnncell
     # The two lines above shouldn't have an extra [0] iterator, but it'll have to
     # stay until you get rid of the multirnncell on the last LSTM layer.
 
@@ -514,9 +551,6 @@ class AttentionMDN(object):
     print("run_cyclically input_ shape:", input_.shape)
 
     (batch_size, sequence_length, input_size) = input_.shape
-    #zero_states_ = self.multi_lstm_cell.zero_state(batch_size, dtype=dtype)
-    #zero_states = self.session.run(zero_states_)
-    #zero_states = self.session.run(self.zero_states)
 
     feeds = {
       self.input_data: input_,
@@ -533,6 +567,8 @@ class AttentionMDN(object):
     feeds[self.init_states[1]] = zero_states[1]
     feeds[self.init_states[2][0]] = zero_states[2][0]
     feeds[self.init_states[2][1]] = zero_states[2][1]
+    feeds[self.init_states[3][0]] = zero_states[3][0]
+    feeds[self.init_states[3][1]] = zero_states[3][1]
 
     fetches = [
       self.mix_weights,

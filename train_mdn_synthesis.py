@@ -1,5 +1,6 @@
 from mdn_synthesis import AttentionMDN
 from utils import gaussian_mixture_contour
+from plot import *
 
 import argparse
 import copy
@@ -12,140 +13,6 @@ import data_handler as dh
 import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
-
-
-def save_weighted_means(means, weights, input_, save_dir, offset=0):
-  '''
-  Just in case the heat maps are too low in resolution to actually plot
-  individual points, this method plots the input along with the sum of the
-  weighted means from the mixture.
-  '''
-
-  sequence_length, num_gaussians, _ = weights.shape
-  map_preds = []
-  for i in range(sequence_length):
-    pred = 0
-    for j in range(num_gaussians):
-      pred += weights[i, j] * means[i, j]
-    map_preds.append(pred)
-  map_preds = np.stack(map_preds, axis=0)
-
-  plt.figure()
-  plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
-  plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
-  plt.savefig(os.path.join(save_dir, "meanplot" + str(offset) + ".png"))
-  plt.close()
-
-
-def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0, title=""):
-  '''
-  This is meant to be used with (x,y) coordinates from the input data
-  representing deltas from pen position at t=i and t=i+1.
-  Successive deltas are added together (for the inputs as well as the weighted
-  means) to produce an image of what was actually written.
-  '''
-
-  sequence_length, num_gaussians, _ = weights.shape
-  print("stroke shape:", stroke.shape)
-  print("means shape:", means.shape)
-  print("input_ shape:", input_.shape)
-  breaks = np.where(stroke > 0.8)[0]
-  breaks_ = np.where(input_[:,2] > 0.8)[0]
-  print("breaks:", breaks_)
-  map_preds = []
-  for i in range(sequence_length):
-    pred = 0
-    for j in range(num_gaussians):
-      pred += weights[i, j] * means[i, j]
-    if i > 0:
-      map_preds.append(pred + map_preds[-1])
-      input_[i, :] = input_[i, :] + input_[i - 1, :]
-    else:
-      map_preds.append(pred)
-  map_preds = np.stack(map_preds, axis=0)
-
-  plt.figure()
-  plt.title(title)
-  plt.scatter(input_[:,0], -input_[:,1], s=2, color="r")
-  plt.scatter(map_preds[:,0], -map_preds[:,1], s=2, color="b")
-  if len(breaks_) > 0:
-    for i in range(1, len(breaks_)):
-      plt.plot(input_[breaks_[i-1]+1:breaks_[i],0], -input_[breaks_[i-1]+1:breaks_[i],1], color="r")
-    for i in range(1, len(breaks_)):
-      plt.plot(map_preds[breaks_[i-1]+1:breaks_[i],0], -map_preds[breaks_[i-1]+1:breaks_[i],1], color="b")
-  else:
-    plt.plot(input_[:,0], -input_[:,1], color="r")
-    plt.plot(map_preds[:,0], -map_preds[:,1], color="b")
-  plt.axis("scaled")
-  plt.savefig(os.path.join(save_dir, "deltasplot" + str(offset) + ".png"))
-  plt.close()
-
-
-def save_dots(dots, strokes, save_dir, offset=0):
-
-  dots = np.squeeze(dots)
-  # Got rid of the squeeze on strokes because it has then potential to maintain a shape of [1,1,1]
-  breaks = np.where(strokes[0,:,0] > 0.4)[0]
-  breaks = [0,] + breaks
-  print("strokes shape:", strokes.shape)
-  print("dots shape:", dots.shape)
-  print("dots breaks:", breaks)
-  print("strokes shape:", strokes.shape)
-  sequence_length, _ = dots.shape
-  map_dots = []
-  for i in range(sequence_length):
-    if i > 0:
-      map_dots.append(dots[i,:] + map_dots[-1])
-    else:
-      map_dots.append(dots[i,:])
-  map_dots = np.stack(map_dots, axis=0)
-
-  plt.figure()
-  #plt.scatter(map_dots[:,0], -map_dots[:,1], s=2, color="b")
-  if len(breaks) > 0:
-    for i in range(1, len(breaks)):
-      plt.plot(map_dots[breaks[i-1]+1:breaks[i],0], -map_dots[breaks[i-1]+1:breaks[i],1], color="b")
-  else:
-    plt.plot(map_dots[:,0], -map_dots[:,0], color="b")
-  plt.axis("scaled")
-  plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + ".png"))
-  plt.close()
-
-
-def save_attention_weights(att, save_dir, offset=0, ylabels=None, suffix="", title="", filename="attention_weights"):
-
-  num_chars, alphabet_size = att.shape
-  print("attention weights shape:", att.shape)
-  #np.savetxt(os.path.join(save_dir, "attention_weights" + suffix + str(i) + ".dat"), np.squeeze(att))
-  plt.figure()
-  plt.title(title)
-  if not ylabels == None:
-    plt.yticks(range(att.shape[0]), ylabels, fontsize=6)
-    plt.rcParams['ytick.labelsize'] = 12
-  plt.xlabel("sequence position")
-  plt.ylabel("alphabet index")
-  plt.imshow(np.squeeze(att).T, interpolation="nearest", cmap="plasma", aspect=8)
-  plt.savefig(os.path.join(save_dir, filename + str(i) + ".png"), dpi=600)
-  plt.close()
-  #np.savetxt(os.path.join(save_dir, filename + str(i) + ".dat"), np.squeeze(att))
-
-
-def save_mixture_weights(weights, save_dir, offset=0, suffix="", title=""):
-
-  sequence_length, num_gaussians, _ = weights.shape
-  #print("sample weights values:", np.squeeze(weights))
-  #print("  weights sum along last axis:", np.sum(np.squeeze(weights), axis=-1))
-  print("mixture weights shape:", weights.shape)
-  #np.savetxt(os.path.join(save_dir, "mixture_weights" + suffix + str(i) + ".dat"), np.squeeze(weights))
-  plt.figure()
-  plt.title(title)
-  plt.xlabel("sequence position")
-  plt.ylabel("gaussian mixture component index")
-  #plt.imsave(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"), np.squeeze(weights).T, vmin=0, vmax=1, interpolation='nearest')
-  plt.imshow(np.squeeze(weights).T, interpolation="nearest", cmap="gray", vmin=0.0, vmax=1.0)
-  plt.savefig(os.path.join(save_dir, "mixture_weights" + str(i) + ".png"))
-  plt.close()
-  #np.savetxt(os.path.join(save_dir, "mixture_weights" + str(i) + ".dat"), np.squeeze(weights))
 
 
 if __name__ == "__main__":
@@ -164,8 +31,6 @@ if __name__ == "__main__":
   parser.add_argument("--iterations", action="store", dest="num_iterations", type=int, default=75000,
                       help="Supply a maximum number of iterations of network training. This is the number of batches of \
                       data that will be presented to the network, NOT the number of epochs.")
-  parser.add_argument("--maxsynthcycles", action="store", dest="num_cycles", type=int, default=400,
-                      help="Have the network generate its own data points for this number of timesteps.")
   parser.add_argument("--numattcomps", action="store", dest="num_att_components", type=int, default=7,
                       help="Number of attention gaussians for convolution with one-hot ASCII text.")
   parser.add_argument("--checkpointfile", action="store", dest="checkpoint_file", type=str, default=None,
@@ -195,7 +60,7 @@ if __name__ == "__main__":
   tf.reset_default_graph()
 
   session = tf.Session()
-  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 350, alphabet_size=dh.alphabet_size(), save=True, dropout=0.85)
+  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True, dropout=0.85)
   if checkpoint_file == None:
     session.run(tf.global_variables_initializer())
   else:
@@ -213,11 +78,13 @@ if __name__ == "__main__":
   writer = tf.summary.FileWriter(save_dir, graph=session.graph)
 
   test_vals = dh.get_test_batch(2, 300)
+  print("test_vals ascii:", test_vals["ascii"][0])
   for i in range(args.num_iterations):
     print("\niteration number: ", i)
     start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
     batch_time = datetime.datetime.now() - start_time
+    things = mdn_model.validate_batch(train["X"], train["onehot"], train["y"])
     things = mdn_model.train_batch(train["X"], train["onehot"], train["y"])
 
     if i % 100 == 0:
@@ -226,11 +93,8 @@ if __name__ == "__main__":
       things = mdn_model.validate_batch(temp_test_vals["X"], temp_test_vals["onehot"], temp_test_vals["y"])
       save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], temp_test_vals["y"][0,:,:], save_dir, i, title=temp_test_vals["ascii"][0])
       save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=temp_test_vals["ascii"][0])
-      save_attention_weights(things[-2][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=temp_test_vals["ascii"][0], offset=i)
-      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=[c for c in test_vals["ascii"][0]], title=temp_test_vals["ascii"][0], offset=i, filename="phi")
-      #save_weighted_deltas(things[1][0,:,:,:], things[3][0,:,:,], things[6][0,:], train["y"][0,:,:], save_dir, i, title=train["ascii"][0])
-      #save_mixture_weights(things[3][0,:,:], save_dir, suffix="prediction", offset=i, title=train["ascii"][0])
-      #save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels=dh.alphabet, title=train["ascii"][0], offset=i)
+      save_attention_weights(things[-2][0,:,:], save_dir, suffix="window", ylabels="".join(dh.alphabet), title=temp_test_vals["ascii"][0], offset=i)
+      save_attention_weights(things[-1][0,:,:], save_dir, suffix="window", ylabels="".join(test_vals["ascii"][0])  , title=temp_test_vals["ascii"][0], offset=i, filename="phi")
 
     if i % 500 == 0:
       mdn_model.save_params(os.path.join(save_dir, "mdn_model_ckpt"), i)

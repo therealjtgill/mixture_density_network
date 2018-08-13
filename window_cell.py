@@ -89,4 +89,4 @@ class WindowCell(RNNCell):
 if __name__ == "__main__":
 
   print("This script inherits the RNNCell interface to create an attention-mechanism-ish RNN.")
-  print("Nothing to run this script directly :'( ")
+  print("No reason to run this script directly :'( ")

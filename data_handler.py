@@ -41,11 +41,11 @@ class data_handler(object):
 
     # Pad character sequences with spaces so that batches all have the same
     # number of one-hot encodings.
-    for i in range(self.num_lines):
-      ascii_data = self.data_all[i][0]
-      num_pad_spaces = self.max_ascii_length - len(ascii_data) + 1
-      #print(ascii_data)
-      self.data_all[i][0] = ascii_data + " "*num_pad_spaces
+    #for i in range(self.num_lines):
+    #  ascii_data = self.data_all[i][0]
+    #  num_pad_spaces = self.max_ascii_length - len(ascii_data) + 1
+    #  #print(ascii_data)
+    #  self.data_all[i][0] = ascii_data + " "*num_pad_spaces
     print("Loading finished.")
 
     print("Splitting data.")
@@ -59,13 +59,10 @@ class data_handler(object):
     self.data_train = self.data_all[:num_train]
     self.data_test = self.data_all[num_train:num_train + num_test]
     self.data_validate = self.data_all[num_train + num_test:]
-    #print("data sample: ", self.data_all[0][0])
-    #self.alphabet = sorted(list(set(''.join([d[0].lower() for d in self.data_all]))))
     self.alphabet = sorted("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ` .!?")
     self.one_hot_alphabet_dict = {char:np.eye(len(self.alphabet), dtype=np.float32)[i] for i, char in enumerate(self.alphabet)}
     # "@" denotes an end of sequence; used to pad ascii one-hots.
     self.one_hot_alphabet_dict['@'] = np.zeros_like(self.one_hot_alphabet_dict['a'])
-    #self.alphabet.append('@')
     print("alphabet: ", self.alphabet)
     print("Splitting finished.")
 
