@@ -12,7 +12,7 @@ class AttentionMDN(object):
   '''
 
   def __init__(self, session, input_size, num_att_gaussians=3, num_mix_gaussians=3, lstm_cell_size=300,
-               alphabet_size=None, save=False, dropout=1.0, l2_penalty=0.0):
+               alphabet_size=None, save=False, dropout=1.0, l2_penalty=0.0, num_lstms=1):
     '''
     Sets up the computation graph for the MDN.
     Bishop, et. al, use a mixture of univariate gaussians, which allows them
@@ -142,16 +142,16 @@ class AttentionMDN(object):
 
       lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
       if self.dropout == 1.0:
-        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2])
       else:
         #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
-        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout, lstm_3_dropout])
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout])
       #outputs, outputs_state = \
         #tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
         #                  initial_state=self.init_states[2:3])
       outputs, outputs_state = \
         tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
-                          initial_state=self.init_states[2:])
+                          initial_state=self.init_states[2:3])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
       self.recurrent_states.append(outputs_state)
       self.layers.append(outputs_flat)
@@ -188,7 +188,7 @@ class AttentionMDN(object):
 
       gauss_values, stroke = tf.split(outputs_flat, [input_size-1, 1], axis=1)
 
-      # Grab these for sampling from the network.
+      # Grab Gaussian parameters for sampling from the network.
       self.gauss_params = \
         self._get_gaussian_params(self.means, self.stdevs, self.correls,
                                   num_mix_gaussians)
@@ -213,21 +213,13 @@ class AttentionMDN(object):
       #self.loss = tf.reduce_mean(-1*tf.log(tf.maximum(self.mixture, 1e-8)) + self.stroke_loss, name="loss")
       self.loss = tf.reduce_mean(-1*tf.log(self.mixture + 1e-8) + self.stroke_loss, name="loss")
       self.loss += self.l2_penalty*tf.reduce_sum([tf.nn.l2_loss(v) for v in tf.trainable_variables()])
-      # Need to clip gradients (?)
       optimizer = tf.train.RMSPropOptimizer(learning_rate=0.0001, momentum=0.9)
-      #self.train_op = optimizer.minimize(self.loss)
-      gradients = optimizer.compute_gradients(self.loss)
-      print("lstm vars:", [var.name for grad, var in gradients if "mdn_lstm_" in var.name])
-      print("output mixture vars:", [var.name for grad, var in gradients if "output_mixture_layer" in var.name])
-      #capped_lstm_grads = [(tf.clip_by_value(grad, -20., 20.), var) for grad, var in gradients
-      #                    if "mdn_lstm_" in var.name]
-      #capped_output_grads = [(tf.clip_by_value(grad, -100., 100.), var) for grad, var in gradients
-      #                       if "output_mixture_layer" in var.name]
-      #remaining_grads = [(grad, var) for grad, var in gradients
-      #                   if "mdn_lstm_" not in var.name and "output_mixture_layer" not in var.name]
-      capped_norm_grads = [(tf.clip_by_norm(grad, 10), var) for grad, var in gradients]
-      #self.train_op = optimizer.apply_gradients(capped_lstm_grads + capped_output_grads + remaining_grads)
-      self.train_op = optimizer.apply_gradients(capped_norm_grads)
+      self.train_op = optimizer.minimize(self.loss)
+      #gradients = optimizer.compute_gradients(self.loss)
+      #print("lstm vars:", [var.name for grad, var in gradients if "mdn_lstm_" in var.name])
+      #print("output mixture vars:", [var.name for grad, var in gradients if "output_mixture_layer" in var.name])
+      #capped_norm_grads = [(tf.clip_by_norm(grad, 10), var) for grad, var in gradients]
+      #self.train_op = optimizer.apply_gradients(capped_norm_grads)
 
       if save:
         self.saver = tf.train.Saver(max_to_keep=20)
@@ -306,7 +298,7 @@ class AttentionMDN(object):
       gaussians = []
       for i in range(num_mix_gaussians):
         correls_denom = tf.reduce_sum(1 - comp_correls[i]*comp_correls[i], axis=1)
-        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom) + 1e-8)
+        factor = 1./(2*np.pi*tf.reduce_prod(comp_stdevs[i], axis=1)*tf.sqrt(correls_denom + 1e-8))
         print("\tfactor", i, ":", factor.shape)
         #print(self.session.run([tf.shape(comp_means[i]), tf.shape(comp_stdevs[i])]))
         norms = (values - comp_means[i])/(comp_stdevs[i] + 1e-8)

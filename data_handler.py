@@ -41,11 +41,11 @@ class data_handler(object):
 
     # Pad character sequences with spaces so that batches all have the same
     # number of one-hot encodings.
-    #for i in range(self.num_lines):
-    #  ascii_data = self.data_all[i][0]
-    #  num_pad_spaces = self.max_ascii_length - len(ascii_data) + 1
-    #  #print(ascii_data)
-    #  self.data_all[i][0] = ascii_data + " "*num_pad_spaces
+    for i in range(self.num_lines):
+      ascii_data = self.data_all[i][0]
+      num_pad_spaces = self.max_ascii_length - len(ascii_data) + 1
+      #print(ascii_data)
+      self.data_all[i][0] = ascii_data + " "*num_pad_spaces
     print("Loading finished.")
 
     print("Splitting data.")

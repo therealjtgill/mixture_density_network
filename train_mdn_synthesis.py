@@ -33,6 +33,8 @@ if __name__ == "__main__":
                       data that will be presented to the network, NOT the number of epochs.")
   parser.add_argument("--numattcomps", action="store", dest="num_att_components", type=int, default=7,
                       help="Number of attention gaussians for convolution with one-hot ASCII text.")
+  parser.add_argument("--numlstms", action="store", dest="num_lstms", type=int, default=1,
+                      help="Number of LSTM's to use after the window layer.")
   parser.add_argument("--checkpointfile", action="store", dest="checkpoint_file", type=str, default=None,
                       help="Location of a checkpoint file to be loaded (for additional training or running).")
 
@@ -42,6 +44,7 @@ if __name__ == "__main__":
   num_mix_components = args.num_mix_components
   num_att_components = args.num_att_components
   checkpoint_file = args.checkpoint_file
+  num_lstms = args.num_lstms
   input_size = 3
 
   if not os.path.exists(data_dir):
@@ -60,7 +63,7 @@ if __name__ == "__main__":
   tf.reset_default_graph()
 
   session = tf.Session()
-  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True, dropout=0.85)
+  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True, dropout=1.0, l2_penalty=0.0)
   if checkpoint_file == None:
     session.run(tf.global_variables_initializer())
   else:
@@ -84,7 +87,8 @@ if __name__ == "__main__":
     start_time = datetime.datetime.now()
     train = dh.get_train_batch(32, 300)
     batch_time = datetime.datetime.now() - start_time
-    things = mdn_model.validate_batch(train["X"], train["onehot"], train["y"])
+    #if i > 5000:
+    #  mdn_model.validate_batch(train["X"], train["onehot"], train["y"])
     things = mdn_model.train_batch(train["X"], train["onehot"], train["y"])
 
     if i % 100 == 0:
