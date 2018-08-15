@@ -30,6 +30,7 @@ class AttentionMDN(object):
     self.dropout = dropout
     self.num_mix_gaussians = num_mix_gaussians
     self.num_att_gaussians = num_att_gaussians
+    self.num_lstms = num_lstms
     self.input_size = input_size
     self.l2_penalty = l2_penalty
     self.alphabet_size = alphabet_size
@@ -68,13 +69,18 @@ class AttentionMDN(object):
       ph_v = tf.placeholder(dtype=dtype, shape=[None, num_att_gaussians])
       self.init_states.append(ph_v)
 
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+      #ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      #ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      #self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
 
-      ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
-      self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+      #ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      #ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+      #self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
+
+      for i in range(self.num_lstms):
+        ph_c = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+        ph_h = tf.placeholder(dtype=dtype, shape=[None, lstm_cell_size])
+        self.init_states.append(tf.nn.rnn_cell.LSTMStateTuple(ph_c, ph_h))
 
       self.init_states = tuple(self.init_states)
       # End initial states
@@ -135,28 +141,44 @@ class AttentionMDN(object):
       # End attention mechanism
 
       # Final recurrent layer
-      lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_b")
-      lstm_2_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_2, output_keep_prob=self.dropout)
-      lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_c")
-      lstm_3_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_3, output_keep_prob=self.dropout)
+      #lstm_2 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_b")
+      #lstm_2_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_2, output_keep_prob=self.dropout)
+      #lstm_3 = tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_c")
+      #lstm_3_dropout = tf.nn.rnn_cell.DropoutWrapper(lstm_3, output_keep_prob=self.dropout)
+      output_lstms = []
+      output_lstms_dropout = []
+      for i in range(self.num_lstms):
+        output_lstms.append(tf.nn.rnn_cell.BasicLSTMCell(lstm_cell_size, name="mdn_lstm_" + chr(ord("b") + i)))
+        output_lstms_dropout.append(tf.nn.rnn_cell.DropoutWrapper(output_lstms[-1], output_keep_prob=self.dropout))
+        self.zero_states.append(output_lstms[-1].zero_state(batch_size, dtype=dtype))
 
-      lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
+      #lstm_2_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
+      output_lstms_input = tf.concat([self.alphabet_weights, self.input_data, lstm_1_out], axis=-1)
       if self.dropout == 1.0:
-        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2])
+        #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2,])
+        #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2, lstm_3])
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell(output_lstms)
       else:
         #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout,])
-        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout])
+        #last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell([lstm_2_dropout, lstm_3_dropout])
+        last_lstm_cells = tf.nn.rnn_cell.MultiRNNCell(output_lstms_dropout)
       #outputs, outputs_state = \
-        #tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
-        #                  initial_state=self.init_states[2:3])
+      #  tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
+      #                    initial_state=self.init_states[2:3])
+      #outputs, outputs_state = \
+      #  tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
+      #                    initial_state=self.init_states[2:])
       outputs, outputs_state = \
-        tf.nn.dynamic_rnn(last_lstm_cells, lstm_2_input, dtype=dtype,
-                          initial_state=self.init_states[2:3])
+        tf.nn.dynamic_rnn(last_lstm_cells, output_lstms_input, dtype=dtype,
+                          initial_state=self.init_states[2:])
       outputs_flat = tf.reshape(outputs, [-1, lstm_cell_size], name="dynamic_rnn_reshape")
-      self.recurrent_states.append(outputs_state)
+      self.recurrent_states += outputs_state
+      print("len outputs state:", len(outputs_state))
+      print("len outputs state[0]:", len(outputs_state[0]))
+      print("len recurrent states:", len(self.recurrent_states))
       self.layers.append(outputs_flat)
-      self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
-      self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
+      #self.zero_states.append(lstm_2.zero_state(batch_size, dtype=dtype))
+      #self.zero_states.append(lstm_3.zero_state(batch_size, dtype=dtype))
       # End final recurrent layer
 
       # Output layer
@@ -369,10 +391,13 @@ class AttentionMDN(object):
     feeds[self.init_states[0][0]] = zero_states[0][0]
     feeds[self.init_states[0][1]] = zero_states[0][1]
     feeds[self.init_states[1]] = zero_states[1]
-    feeds[self.init_states[2][0]] = zero_states[2][0]
-    feeds[self.init_states[2][1]] = zero_states[2][1]
-    feeds[self.init_states[3][0]] = zero_states[3][0]
-    feeds[self.init_states[3][1]] = zero_states[3][1]
+    #feeds[self.init_states[2][0]] = zero_states[2][0]
+    #feeds[self.init_states[2][1]] = zero_states[2][1]
+    #feeds[self.init_states[3][0]] = zero_states[3][0]
+    #feeds[self.init_states[3][1]] = zero_states[3][1]
+    for i in range(self.num_lstms):
+      feeds[self.init_states[i+2][0]] = zero_states[i+2][0]
+      feeds[self.init_states[i+2][1]] = zero_states[i+2][1]
 
     fetches = [
       self.train_op,
@@ -433,11 +458,14 @@ class AttentionMDN(object):
     feeds[self.init_states[0][0]] = zero_states[0][0]
     feeds[self.init_states[0][1]] = zero_states[0][1]
     feeds[self.init_states[1]] = zero_states[1]
-    feeds[self.init_states[2][0]] = zero_states[2][0]
-    feeds[self.init_states[2][1]] = zero_states[2][1]
-    feeds[self.init_states[3][0]] = zero_states[3][0]
-    feeds[self.init_states[3][1]] = zero_states[3][1]
-
+    #feeds[self.init_states[2][0]] = zero_states[2][0]
+    #feeds[self.init_states[2][1]] = zero_states[2][1]
+    #feeds[self.init_states[3][0]] = zero_states[3][0]
+    #feeds[self.init_states[3][1]] = zero_states[3][1]
+    for i in range(self.num_lstms):
+      feeds[self.init_states[i+2][0]] = zero_states[i+2][0]
+      feeds[self.init_states[i+2][1]] = zero_states[i+2][1]
+      
     fetches = [
       self.loss,
       self.gauss_evals,
@@ -485,17 +513,21 @@ class AttentionMDN(object):
     }
 
     #print("len initial states[2]:", len(initial_states[2])) 
+    #print("len initial states:", len(initial_states))
 
     # Initialize recurrent states with the states from the previous timestep.
     feeds[self.init_states[0][0]] = initial_states[0][0]
     feeds[self.init_states[0][1]] = initial_states[0][1]
     feeds[self.init_states[1]] = initial_states[1]
-    feeds[self.init_states[2][0]] = initial_states[2][0][0] # Ugly because of multirnncell
-    feeds[self.init_states[2][1]] = initial_states[2][0][1] # Ugly because of multirnncell
-    feeds[self.init_states[3][0]] = initial_states[3][0][0] # Ugly because of multirnncell
-    feeds[self.init_states[3][1]] = initial_states[3][0][1] # Ugly because of multirnncell
+    #feeds[self.init_states[2][0]] = initial_states[2][0][0] # Ugly because of multirnncell
+    #feeds[self.init_states[2][1]] = initial_states[2][0][1] # Ugly because of multirnncell
+    #feeds[self.init_states[3][0]] = initial_states[2][1][0] # Ugly because of multirnncell
+    #feeds[self.init_states[3][1]] = initial_states[2][1][1] # Ugly because of multirnncell
     # The two lines above shouldn't have an extra [0] iterator, but it'll have to
     # stay until you get rid of the multirnncell on the last LSTM layer.
+    for i in range(self.num_lstms):
+      feeds[self.init_states[i+2][0]] = initial_states[i+2][0]
+      feeds[self.init_states[i+2][1]] = initial_states[i+2][1]
 
     fetches = [
       self.mix_weights,
@@ -557,10 +589,13 @@ class AttentionMDN(object):
     feeds[self.init_states[0][0]] = zero_states[0][0]
     feeds[self.init_states[0][1]] = zero_states[0][1]
     feeds[self.init_states[1]] = zero_states[1]
-    feeds[self.init_states[2][0]] = zero_states[2][0]
-    feeds[self.init_states[2][1]] = zero_states[2][1]
-    feeds[self.init_states[3][0]] = zero_states[3][0]
-    feeds[self.init_states[3][1]] = zero_states[3][1]
+    #feeds[self.init_states[2][0]] = zero_states[2][0]
+    #feeds[self.init_states[2][1]] = zero_states[2][1]
+    #feeds[self.init_states[3][0]] = zero_states[3][0]
+    #feeds[self.init_states[3][1]] = zero_states[3][1]
+    for i in range(self.num_lstms):
+      feeds[self.init_states[i+2][0]] = zero_states[i+2][0]
+      feeds[self.init_states[i+2][1]] = zero_states[i+2][1]
 
     fetches = [
       self.mix_weights,
@@ -580,6 +615,7 @@ class AttentionMDN(object):
     print("state lens:", [len(s) for s in init_state])
     print("init state[2][0] len", len(init_state[2][0]))
     print("type init_state[2][0]", type(init_state[2][0]))
+    print("init state len:", len(init_state))
 
     # Need to loop over the method "_run_once" and constantly update its
     # initial recurrent state and input value.
@@ -617,11 +653,16 @@ class AttentionMDN(object):
       states.append(temp_state)
       alphabet_weights.append(temp_aw)
       phis.append(temp_phi)
-      for u in range(len(ascii)):
-        if temp_stop[0,0,0] > temp_phi[0,0,u]:
-          stop_cycle = True
-          print("\tStopping the cyclical run after", i, "steps")
-          break
+      #for u in range(len(ascii)):
+      #  if temp_stop[0,0,0] > temp_phi[0,0,u]:
+      #    stop_cycle = True
+      #  else:
+      #    stop_cycle = False
+      #    print("\tStopping the cyclical run after", i, "steps")
+      #    break
+      if np.all(temp_stop[0,0,0] > temp_phi[0,0,:]):
+        print("\tStopping the cyclical run after", i, "steps")
+        stop_cycle = True
       i += 1
 
     return (np.concatenate(dots, axis=1), np.concatenate(strokes, axis=1), np.concatenate(alphabet_weights, axis=1), np.concatenate(phis, axis=1)) # Getting shapes with three items: (1, sl, 2)

@@ -72,7 +72,7 @@ def save_weighted_deltas(means, weights, stroke, input_, save_dir, offset=0, tit
   plt.close()
 
 
-def save_dots(dots, strokes, save_dir, offset=0):
+def save_dots(dots, strokes, save_dir, offset=0, suffix="", save_text=False):
 
   dots = np.squeeze(dots)
   # Got rid of the squeeze on strokes because it has then potential to maintain a shape of [1,1,1]
@@ -91,6 +91,9 @@ def save_dots(dots, strokes, save_dir, offset=0):
       map_dots.append(dots[i,:])
   map_dots = np.stack(map_dots, axis=0)
 
+  if save_text:
+    np.savetxt(os.path.join(save_dir, "cyclicalrundat" + str(offset) + suffix + ".dat"), map_dots)
+
   plt.figure()
   #plt.scatter(map_dots[:,0], -map_dots[:,1], s=2, color="b")
   if len(breaks) > 0:
@@ -99,7 +102,7 @@ def save_dots(dots, strokes, save_dir, offset=0):
   else:
     plt.plot(map_dots[:,0], -map_dots[:,0], color="b")
   plt.axis("scaled")
-  plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + ".png"))
+  plt.savefig(os.path.join(save_dir, "cyclicalrunplot" + str(offset) + suffix + ".png"), dpi=600)
   plt.close()
 
 

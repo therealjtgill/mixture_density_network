@@ -6,11 +6,9 @@ import argparse
 import copy
 import datetime
 import os
-import scipy.misc
 import sys
 
 import data_handler as dh
-import matplotlib.pyplot as plt
 import numpy as np
 import tensorflow as tf
 
@@ -63,7 +61,7 @@ if __name__ == "__main__":
   tf.reset_default_graph()
 
   session = tf.Session()
-  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True, dropout=1.0, l2_penalty=0.0)
+  mdn_model = AttentionMDN(session, input_size, num_att_components, num_mix_components, 250, alphabet_size=dh.alphabet_size(), save=True, dropout=1.0, l2_penalty=1e-8)
   if checkpoint_file == None:
     session.run(tf.global_variables_initializer())
   else:
