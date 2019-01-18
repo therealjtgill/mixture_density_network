@@ -175,7 +175,7 @@ def extract_stroke_from_xml(file_location):
 
 def extract_ascii_and_stroke_from_xml(stroke_files, ascii_file):
   '''
-  Stroke file names have the pattern
+  Line stroke file names have the pattern
     k10-103z-01.xml
   Ascii file names have the pattern
     k10-103z.txt
@@ -204,7 +204,7 @@ def extract_ascii_and_stroke_from_xml(stroke_files, ascii_file):
       #print('  line index being used:', len(lines) - len(stroke_files) - 1 + ascii_line_number)
       #print('  len(lines):', len(lines))
       #print('  len(stroke_files):', len(stroke_files))
-      ascii_stroke_data.append((ascii_data, stroke_data))
+      ascii_stroke_data.append([ascii_data, stroke_data])
 
   return ascii_stroke_data
 
@@ -252,11 +252,11 @@ def get_training_files(raw_data_location, ext):
 if __name__ == "__main__":
 
   parser = argparse.ArgumentParser(description="Takes XML data from the IAM online handwriting database and cleans it. \
-                                                Currently the only file structure that is supported is the \"original-xml-part.tar.gz \"\
-                                                file, which can be downloaded from the IAM online website.")
+                                                The only file structure that is supported is the lineStrokes data, \"\
+                                                which can be downloaded from the IAM online website.")
 
   parser.add_argument("--rawdata", action="store", type=str, required=True,
-                      help="The location of the raw (extracted) XML files from the IAM online handwriting db.")
+                      help="The location of the raw (extracted) lineStroke XML files from the IAM online handwriting db.")
   parser.add_argument("--cleandata", action="store", type=str, required=True,
                       help="Where the clean data that has been extracted from XML files should be stored.")
   parser.add_argument("--asciidata", action="store", type=str,
