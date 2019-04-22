@@ -41,7 +41,3 @@ Note that the training script isn't configured to sniff out your particular hard
 This script currently has no early stopping criteria, so give it a ctrl+c once you get tired of doing training. Also, there's no concept of epochs in the data procurement; all batches are sampled with replacement from the full dataset.
 
 The memory requirements for this script are relatively hefty; I've had runs take up close to 4 GB of RAM.
-
-There is currently nothing in place for loading a trained model and running it, but the mdn class has methods that allow for recursive sampling from its own distributions (to generate handwriting recurrently).
-
-The future plan is to implement the character windowing feature (perhaps not using the GMM-based windowing technique?) so that handwriting can be generated on a per-character basis.
