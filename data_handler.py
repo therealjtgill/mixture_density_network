@@ -14,8 +14,11 @@ class data_handler(object):
   def __init__(self, pkl_file, splits):
     '''
     Takes in a pkl file and an array indicating what portions of the pickle
-    will be training, test, and validation sets.
+    will be training, test, and validation sets or (logical) creates an
+    alphabet and dictionary that maps characters to one-hot encodings.
     '''
+
+    self.MIN_DATA_LENGTH = 100
 
     try:
       assert(isinstance(pkl_file, str))
@@ -34,9 +37,11 @@ class data_handler(object):
     self.max_ascii_length = max([len(d[0]) for d in self.data_all])
 
     self.num_lines = len(self.data_all)
-    if self.num_lines < 100:
-      print("Not enough data! Only found 100 lines of data.")
+    if self.num_lines < self.MIN_DATA_LENGTH:
+      print("Not enough data! Only found", self.num_lines, "lines of data.")
+      print("Need at least", self.MIN_DATA_LENGTH, "lines of data.")
       sys.exit(-1)
+
     np.random.shuffle(self.data_all)
 
     # Pad character sequences with spaces so that batches all have the same
@@ -128,10 +133,6 @@ class data_handler(object):
       num_chars_per_point = num_chars_in_line/num_points_in_line
       start_index = 0
       char_offset = int(start_index*num_chars_per_point)
-      #print("----------------------")
-      #print("num_points_in_line:", num_points_in_line)
-      #print("num_chars_in_line:", num_chars_in_line)
-      #print("num_chars_per_point:", num_chars_per_point)
       num_chars = int(sequence_length*num_chars_per_point)
       #print("num_chars:", num_chars)
       batch_in.append(data[i][1][start_index:sequence_length + start_index, :])
