@@ -1,9 +1,10 @@
 import tensorflow as tf
 import numpy as np
-np.set_printoptions(threshold=np.nan)
 import os
 import sys
 from window_cell import WindowCell
+
+np.set_printoptions(threshold=sys.maxsize)
 
 class AttentionMDN(object):
   '''
